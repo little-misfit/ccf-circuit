@@ -32,12 +32,12 @@
       .sort((a,b) => (a.ts || Infinity) - (b.ts || Infinity));
     const points = geo.lookup(e.place || '');
     const search = normalize([e.title,e.name,e.year,e.place,e.rank,fields[e.category],...points.map(p => p.name)].join(' '));
-    return {...e, year:Number(e.year), points, deadlines, search};
+    return {...e, year:Number(e.year), meetingYear:e.start ? Number(e.start.slice(0,4)) : Number(e.year), points, deadlines, search};
   });
   const eventById = new Map(events.map(e => [e.id,e]));
   const today = cst(Date.now());
   const currentYear = Number(today.slice(0,4));
-  const seasons = [...new Set(events.map(e => e.year))].sort((a,b) => b-a);
+  const seasons = [...new Set(events.map(e => e.meetingYear))].sort((a,b) => b-a);
   const plannedYear = Number(today.slice(5,7)) >= 10 && seasons.includes(currentYear + 1) ? currentYear + 1 : currentYear;
   const state = {year:seasons.includes(plannedYear) ? plannedYear : seasons[0], month:0, mode:'meet', rank:'', category:'', query:'', favOnly:false, limit:32, saved:readSaved()};
   let rows = [], spotlight = null, cityMap = new Map(), openCity = null;
@@ -57,7 +57,7 @@
       if ((state.rank && e.rank !== state.rank) || (state.category && state.category !== e.category) ||
           (state.favOnly && !state.saved.has(e.id)) || !q.every(s => e.search.includes(s))) continue;
       if (state.mode === 'meet') {
-        if (e.year !== state.year) continue;
+        if (e.meetingYear !== state.year) continue;
         items.push({e, date:e.start || '', d:null});
       } else {
         for (const d of e.deadlines) {
