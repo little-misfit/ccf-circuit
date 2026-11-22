@@ -5,6 +5,22 @@
   'use strict';
   const groups = {
     US: `
+Carlsbad 33.158 -117.351
+Waikoloa Village 19.943 -155.786|Waikoloa
+Oklahoma City 35.468 -97.516
+Ames 42.030 -93.620
+Santa Fe 35.687 -105.938
+Marina del Rey 33.980 -118.452
+Knoxville 35.961 -83.921
+St. Petersburg FL 27.768 -82.641|St Petersburg
+Wilmington DE 39.745 -75.546|Wilmington
+Bend 44.058 -121.315
+Princeton 40.357 -74.667
+La Jolla 32.833 -117.271
+Troy NY 42.728 -73.692|Troy
+Lexington KY 38.041 -84.504|Lexington
+Daytona Beach 29.210 -81.023
+North Conway 44.053 -71.128
 Alexandria VA 38.805 -77.047|Alexandria
 Anaheim 33.837 -117.915
 Ann Arbor 42.281 -83.743
@@ -27,7 +43,7 @@ Denver 39.739 -104.990
 Detroit 42.331 -83.046
 Fort Collins 40.585 -105.084
 Fort Worth 32.755 -97.331
-Honolulu 21.307 -157.858|Waikiki
+Honolulu 21.307 -157.858|Waikiki|Hawaii Convention Center
 Huntington Beach 33.660 -117.999
 Indianapolis 39.769 -86.158
 Irvine 33.684 -117.827
@@ -99,6 +115,10 @@ St. Louis 38.627 -90.199|Saint Louis
 Stony Brook 40.925 -73.141
 Tucson 32.222 -110.975`,
     CA: `
+Victoria BC 48.428 -123.366|Victoria
+Windsor ON 42.315 -83.036|Windsor
+Fredericton 45.964 -66.644
+Québec City 46.814 -71.208
 Calgary 51.045 -114.072
 Hamilton ON 43.255 -79.871|Hamilton
 Kingston ON 44.231 -76.486|Kingston
@@ -117,6 +137,11 @@ Halifax 44.648 -63.575
 Kelowna 49.888 -119.496
 Niagara Falls 43.089 -79.085`,
     CN: `
+Haikou 20.045 110.199
+Guilin 25.274 110.290
+Nanchang 28.683 115.858
+Taichung 24.147 120.674
+Dalian 38.914 121.615
 Beijing 39.904 116.407
 Changsha 28.228 112.939
 Chengdu 30.573 104.067
@@ -162,6 +187,14 @@ Zhengzhou 34.747 113.625
 Zhenjiang 32.188 119.425
 Zhuhai 22.271 113.577`,
     DE: `
+Hamburg 53.551 9.994
+Dortmund 51.514 7.466
+Leipzig 51.340 12.373
+Potsdam 52.391 13.064
+Paderborn 51.719 8.758
+Heidelberg 49.399 8.673
+Lübeck 53.866 10.687
+Koblenz 50.357 7.589
 Aachen 50.776 6.084
 Berlin 52.520 13.405
 Bonn 50.737 7.099
@@ -176,6 +209,9 @@ Saarbrücken 49.240 6.997
 Stuttgart 48.775 9.182
 Aerzen 52.050 9.262`,
     FR: `
+Grenoble 45.188 5.724
+Nice 43.710 7.262
+Reims 49.258 4.032
 Bordeaux 44.838 -0.579
 Lille 50.630 3.057
 Lyon 45.764 4.836
@@ -190,6 +226,11 @@ Nancy 48.692 6.184
 Nantes 47.218 -1.553
 Toulouse 43.604 1.444`,
     GB: `
+Aberdeen 57.149 -2.094
+Warwick 52.282 -1.585
+Portsmouth 50.819 -1.088
+Canterbury 51.280 1.080
+Guildford 51.236 -0.571
 Belfast 54.597 -5.930
 Brighton 50.823 -0.137
 Cambridge 52.205 0.122
@@ -211,6 +252,10 @@ Oxford 51.752 -1.258
 Sheffield 53.381 -1.470
 York 53.960 -1.088`,
     IT: `
+Genoa 44.405 8.946|Genova
+Alghero 40.558 8.319
+Taormina 37.852 15.290
+Sorrento 40.627 14.375
 Bari 41.117 16.872
 Benevento 41.130 14.782
 Bologna 44.495 11.343
@@ -237,6 +282,7 @@ Pompeii 40.749 14.500|Pompei
 Rimini 44.067 12.568
 Salerno 40.682 14.768`,
     ES: `
+Segovia 40.943 -4.109
 Barcelona 41.387 2.170
 Bilbao 43.263 -2.935
 Madrid 40.417 -3.704
@@ -262,6 +308,9 @@ Enschede 52.221 6.894
 Groningen 53.219 6.567
 Rotterdam 51.924 4.478`,
     JP: `
+Fukuoka 33.590 130.402
+Matsue 35.469 133.049
+Nagasaki 32.750 129.878
 Fukui 36.065 136.222
 Kobe 34.690 135.196
 Kyoto 35.012 135.768
@@ -275,6 +324,7 @@ Miyakojima 24.805 125.281
 Nara 34.685 135.805
 Tsukuba 36.084 140.077`,
     AU: `
+Adelaide -34.929 138.601
 Brisbane -27.470 153.025
 Cairns -16.920 145.771
 Gold Coast -28.017 153.400
@@ -288,11 +338,14 @@ Auckland -36.849 174.763
 Hamilton NZ -37.787 175.279|Hamilton
 Wellington -41.287 174.776`,
     FI: `
+Oulu 65.012 25.466
 Helsinki 60.170 24.938
 Tampere 61.498 23.761
 Espoo 60.206 24.656
 Rovaniemi 66.503 25.729`,
     SE: `
+Gothenburg 57.709 11.975
+Västerås 59.610 16.545
 Linköping 58.410 15.622
 Malmö 55.605 13.004
 Stockholm 59.329 18.069`,
@@ -311,29 +364,35 @@ Vienna 48.208 16.374|Wien
 Linz 48.307 14.286
 Hagenberg 48.367 14.517`,
     GR: `
+Ioannina 39.666 20.853
 Athens 37.984 23.728
 Chania 35.513 24.019
 Heraklion 35.338 25.144
 Thessaloniki 40.641 22.944
 Mytilene 39.108 26.555`,
     BE: `
+Antwerp 51.219 4.403
 Brussels 50.850 4.352
 Ghent 51.054 3.717
 Charleroi 50.410 4.445
 Leuven 50.880 4.701`,
     PT: `
+Cascais 38.697 -9.421
+Braga 41.551 -8.427
 Coimbra 40.203 -8.410
 Lisbon 38.723 -9.139
 Porto 41.157 -8.629
 Vilamoura 37.077 -8.119
 Funchal 32.650 -16.909`,
     PL: `
+Wrocław 51.108 17.039
 Kraków 50.065 19.945
 Łódź 51.759 19.456|Lodz
 Poznań 52.406 16.925
 Bydgoszcz 53.123 18.008
 Warsaw 52.230 21.012`,
     KR: `
+Gyeongju 35.856 129.225
 Busan 35.180 129.076
 Daegu 35.872 128.602
 Daejeon 36.350 127.385
@@ -341,6 +400,7 @@ Seoul 37.566 126.978
 Incheon 37.456 126.705
 Suwon 37.264 127.029`,
     IN: `
+Mumbai 19.076 72.878
 Bengaluru 12.972 77.595|Bangalore
 New Delhi 28.614 77.209
 Ahmedabad 23.023 72.571
@@ -378,6 +438,7 @@ Tangier 35.760 -5.834`,
 Dubai 25.205 55.271
 Abu Dhabi 24.454 54.377`,
     HR: `
+Bol 43.263 16.656
 Dubrovnik 42.651 18.094
 Zagreb 45.815 15.982`,
     CY: `
@@ -393,6 +454,8 @@ Istanbul 41.009 28.978`,
 Kuala Lumpur 3.139 101.687
 Kuching 1.554 110.360`,
     NO: `
+Stavanger 58.970 5.734
+Oslo 59.914 10.752
 Bergen 60.392 5.323
 Røros 62.575 11.384
 Tromsø 69.650 18.955
@@ -401,9 +464,18 @@ Trondheim 63.430 10.396`,
 Kaunas 54.898 23.904
 Vilnius 54.687 25.280`,
     TH: `
+Chiang Mai 18.788 98.985
 Bangkok 13.756 100.502
 Mai Khao 8.167 98.298
 Phuket 7.880 98.392`,
+    CO: 'Bogotá 4.711 -74.072',
+    DO: 'Punta Cana 18.561 -68.372',
+    IL: `
+Haifa 32.794 34.990
+Tel Aviv 32.085 34.782`,
+    RW: 'Kigali -1.944 30.062',
+    GE: 'Tbilisi 41.715 44.827',
+    RO: 'Cluj-Napoca 46.771 23.624',
     AR: 'Buenos Aires -34.604 -58.382',
     CL: 'Santiago -33.449 -70.669',
     CR: 'San José 9.929 -84.090',
@@ -411,34 +483,43 @@ Phuket 7.880 98.392`,
     EG: 'Sharm El-Sheikh 27.915 34.330',
     FJ: 'Nadi -17.777 177.436',
     HU: 'Budapest 47.498 19.040',
-    ID: 'Bandung -6.917 107.619',
-    IE: 'Dublin 53.350 -6.260',
+    ID: `
+Bandung -6.917 107.619
+Jakarta -6.209 106.846`,
+    IE: `
+Dublin 53.350 -6.260
+Athlone 53.424 -7.940`,
     IS: 'Reykjavík 64.147 -21.943',
     KH: 'Siem Reap 13.364 103.860',
-    LU: 'Luxembourg City 49.612 6.132',
+    LU: `
+Luxembourg City 49.612 6.132
+Kirchberg 49.627 6.160`,
     PA: 'Panama City 8.983 -79.520',
     QA: 'Doha 25.285 51.531',
     RS: 'Belgrade 44.787 20.449',
     SG: 'Singapore 1.352 103.820',
-    SI: 'Maribor 46.554 15.646',
+    SI: `
+Maribor 46.554 15.646
+Ljubljana 46.057 14.506`,
     TN: 'Tunis 36.807 10.182',
     UY: 'Montevideo -34.901 -56.165',
     CW: 'Willemstad 12.109 -68.932',
   };
 
   const countries = {
-    US:'United States of America|United States|United State|USA|U S A',
-    CA:'Canada', CN:'China|Taiwan|People s Republic of China', DE:'Germany',
-    FR:'France', GB:'United Kingdom|UK|England|Scotland|Wales|Northern Ireland',
+    US:'United States of America|United States|United State|USA|U S A|US',
+    CA:'Canada', CN:'China|Taiwan|Hong Kong|Macao|Macau|People s Republic of China', DE:'Germany',
+    FR:'France', GB:'United Kingdom|Great Britain|UK|England|Scotland|Wales|Northern Ireland',
     IT:'Italy', ES:'Spain', NL:'Netherlands', JP:'Japan', AU:'Australia',
     NZ:'New Zealand', FI:'Finland', SE:'Sweden', CH:'Switzerland', AT:'Austria',
-    GR:'Greece', BE:'Belgium', PT:'Portugal', PL:'Poland', KR:'Korea',
+    GR:'Greece', BE:'Belgium|BE', PT:'Portugal', PL:'Poland', KR:'Korea',
     IN:'India', BR:'Brazil', DK:'Denmark', VN:'Vietnam|Viet Nam', MX:'Mexico',
     CZ:'Czech Republic|Czechia', MA:'Morocco', AE:'UAE|United Arab Emirates',
     HR:'Croatia', CY:'Cyprus', ZA:'South Africa', TR:'Turkey|Türkiye',
     MY:'Malaysia', NO:'Norway', LT:'Lithuania', TH:'Thailand',
     AR:'Argentina', CL:'Chile', CR:'Costa Rica', EE:'Estonia', EG:'Egypt',
     FJ:'Fiji', HU:'Hungary', ID:'Indonesia', IE:'Ireland', IS:'Iceland',
+    GE:'Georgia', IL:'Israel', DO:'Dominican Republic', CO:'Colombia', RO:'Romania', RW:'Rwanda',
     KH:'Cambodia', LU:'Luxembourg', PA:'Panama', QA:'Qatar', RS:'Serbia',
     SG:'Singapore', SI:'Slovenia', TN:'Tunisia', UY:'Uruguay', CW:'Curaçao',
   };
@@ -468,13 +549,17 @@ Phuket 7.880 98.392`,
   const cache = new Map();
 
   function resolve(section) {
+    if (/\(\s*(?:online|virtual)\s*\)/i.test(section)) return null;
     const whole = normalize(section);
     const context = new Set(countryTerms.filter(([,term]) => words(whole,term)).map(([code])=>code));
     // "Northern Ireland" identifies the UK's Belfast venue.
     if (words(whole,'northern ireland')) context.delete('IE');
-    if (!context.size && /(?:,\s*(?:CA|MA|NY|CO|PA|TX|FL|WA|OR|VA|AZ|MI|MD|IL|NJ|NC|SC|UT)\b)/i.test(section)) context.add('US');
+    if (!context.size && /(?:,\s*(?:CA|MA|NY|CO|PA|TX|FL|WA|OR|VA|AZ|MI|MD|IL|NJ|NC|SC|UT|DC)\b)/i.test(section)) context.add('US');
     if (!context.size && /(?:,\s*(?:BC|ON|QC|NL)\b)/i.test(section)) context.add('CA');
-    if (!context.size && /,\s*(?:california|massachusetts|oregon|colorado|utah|alaska)\b/i.test(section)) context.add('US');
+    if (!context.size && section.split(/[,，()]/).slice(1).some(part => usStates.has(normalize(part)))) context.add('US');
+
+    // Do not reinterpret a foreign place with the same spelling as a host city.
+    if (!context.size && /[,，]/.test(section)) return null;
 
     function qualify(key) {
       let matches = entries.get(key) || [];
