@@ -8,4 +8,17 @@
 
 ## 本地运行
 
-直接用浏览器打开 index.html，或在项目目录运行 `python3 -m http.server 8000` 后访问 http://localhost:8000 。
+在项目目录运行以下命令生成数据快照并启动预览。同步脚本使用 Python 3.9 及以上版本的标准库。
+
+```sh
+python3 sync_ccf.py --output conferences.js
+python3 -m http.server 8000
+```
+
+浏览器中打开 http://localhost:8000 。生成快照后，也可以直接双击 index.html 离线使用。
+
+## 更新和发布
+
+GitHub Actions 每日北京时间 10:23 请求更新，也会在 main 分支提交后构建。构建先校验数据，再用 Chrome 测试地图选点、筛选、收藏和投稿日程。通过后将包含完整数据的静态网页发布到 GitHub Pages。下一次构建失败时，线上继续提供上一次成功发布的版本。
+
+地理底图来自 Natural Earth 的 1:110m 陆地数据，经 World Atlas 汇编。城市标点表示举办地，会议官网提供具体地址。CCFDDL 数据的许可见 CCFDDL-LICENSE.txt。
