@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
+import re
 
 from playwright.sync_api import sync_playwright
 
@@ -63,6 +64,27 @@ def main():
         page.evaluate('window.__qaGlobe.stopRotation()')
         page.mouse.move(0, 0)
 
+    def english_ui(page, label):
+        content = page.evaluate("""() => ({
+          language: document.documentElement.lang,
+          brand: document.querySelector('.brand').textContent.trim(),
+          title: document.title,
+          text: document.body.innerText,
+          attributes: [...document.querySelectorAll('[aria-label],[placeholder],[title]')]
+            .flatMap(e => ['aria-label','placeholder','title'].map(a => e.getAttribute(a) || '')).join(' ')
+        })""")
+        unexpected = re.findall(r'[\u3400-\u4dbf\u4e00-\u9fff]+', content['text'] + content['attributes'])
+        check(label, content['language'] == 'en' and content['brand'] == 'CCF-Schedule'
+              and 'CCF-Schedule' in content['title'] and not unexpected
+              and 'CCF Circuit' not in content['text'], {'unexpected_text': unexpected})
+
+    def fits_viewport(page, selector):
+        return page.locator(selector).evaluate("""e => {
+          const r=e.getBoundingClientRect();
+          return r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0
+            && r.bottom <= innerHeight + 1 && e.scrollWidth <= e.clientWidth + 1;
+        }""")
+
     def nearest(page, label):
         snapshot = page.evaluate("({events:CCF_DATA.events,year:Number(document.querySelector('#year').value),now:Date.now(),rank:document.querySelector('#rank').value,category:document.querySelector('#category').value,mode:document.querySelector('#mode-deadline').getAttribute('aria-pressed')==='true'?'deadline':'meet',month:Number(document.querySelector('#months [aria-pressed=true]').dataset.month)})")
         if page.locator('#nav-fav').get_attribute('aria-pressed') == 'true':
@@ -86,6 +108,20 @@ def main():
         page.on('response', lambda response: report['httpErrors'].append({'url': response.url, 'status': response.status}) if response.status >= 400 else None)
         page.goto(args.url, wait_until='networkidle')
         ready(page)
+        pause(page)
+        english_ui(page, 'overview uses English and exact CCF-Schedule branding')
+        initial = page.evaluate('({events:CCF_DATA.events,now:Date.now()})')
+        ai_times = [datetime.fromisoformat(deadline['at'].replace('Z', '+00:00')).timestamp() * 1000
+                    for event in initial['events'] if event['rank'] == 'A' and event['category'] == 'AI'
+                    for deadline in event['deadlines'] if deadline.get('at')]
+        earliest_ai = min((at for at in ai_times if at > initial['now']), default=initial['now'])
+        default_year = datetime.fromtimestamp(earliest_ai / 1000, timezone(timedelta(hours=8))).year
+        check('initial submission year contains the next AI CCF A deadline', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
+              and page.locator('#year').input_value() == str(default_year))
+        check('initial filters are CCF A and Artificial Intelligence', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == 'AI')
+        nearest(page, 'nearest future deadline respects the initial AI and CCF A filters')
+        page.locator('#rank').select_option(''); page.locator('#category').select_option('')
+        page.wait_for_timeout(1000)
         pause(page)
         check('actual WebGL2 globe and locally loaded Earth texture', page.evaluate("__qaGlobe.globe.renderer().getContext() instanceof WebGL2RenderingContext && __qaGlobe.globe.globeMaterial().map.image.naturalWidth>=1024"))
         check('conference locations are actual sphere meshes', page.evaluate("__qaGlobe.globe.pointsData().length>0 && __qaGlobe.globe.scene().children.length>0"))
@@ -141,6 +177,7 @@ def main():
             check('city conference opens complete deadline details', False)
         page.locator('.globe-tag.hot:not([hidden])').first.click()
         check('floating countdown opens its conference details', page.locator('#detail').is_visible())
+        english_ui(page, 'conference details and controls use English')
         page.keyboard.press('Escape')
 
         page.locator('#rank').select_option('A'); page.wait_for_timeout(1100)
@@ -148,6 +185,7 @@ def main():
         page.locator('#category').select_option('AI'); page.wait_for_timeout(1000)
         nearest(page, 'nearest highlight follows subject filter')
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
+        page.locator('#mode-meet').click()
         page.locator('#year').select_option('2026'); page.wait_for_timeout(1000)
         nearest(page, 'nearest highlight follows selected meeting year')
         page.locator('#mode-deadline').click(); page.wait_for_timeout(1000)
@@ -157,12 +195,14 @@ def main():
         page.locator('#months [data-month="0"]').click(); page.locator('#mode-meet').click()
         page.locator('#search').fill('no-conference-has-this-name')
         check('empty filters clear globe markers, labels and nearest deadline', page.evaluate("__qaGlobe.locations.length===0 && document.querySelectorAll('.globe-tag').length===0 && !document.querySelector('.spot-name')"))
+        english_ui(page, 'empty search state and reset control use English')
         page.locator('#clear-filter').click(); page.wait_for_timeout(1000)
         page.locator('#schedule [data-save]').first.click(); page.locator('#nav-fav').click()
         check('favorites isolate the agenda and globe', page.locator('#schedule .event').count() == 1 and page.evaluate('__qaGlobe.locations.every(p=>p.events.length===1)'))
         nearest(page, 'nearest highlight follows saved conference scope')
         page.reload(wait_until='networkidle'); ready(page); pause(page)
         check('favorites persist after reload', page.locator('#fav-count').text_content() == '1')
+        page.locator('#rank').select_option(''); page.locator('#category').select_option('')
 
         for width in [1440, 768, 390, 320]:
             page.set_viewport_size({'width': width, 'height': 1050 if width > 760 else 844})
@@ -173,9 +213,16 @@ def main():
             fits = all(b['left'] >= stage['x'] - 1 and b['right'] <= stage['x'] + stage['width'] + 1 and b['top'] >= stage['y'] - 1 and b['bottom'] <= stage['y'] + stage['height'] + 1 for b in boxes)
             check(f'{width}px: no page overflow or overlapping floating cards', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and not overlap and fits, boxes)
             check(f'{width}px: nearest deadline remains visible and readable', page.locator('.globe-tag.hot:not([hidden])').count() > 0)
+            check(f'{width}px: English labels fit their cards', page.locator('.globe-tag:not([hidden])').evaluate_all('es=>es.every(e=>e.scrollWidth<=e.clientWidth+1)'))
             if width in [1440, 390]:
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
                 page.screenshot(path=str(output / f'globe-qa-{width}.png'), full_page=True)
+            page.locator('.spot-name').click()
+            check(f'{width}px: detail dialog fits the viewport', fits_viewport(page, '#detail'))
+            page.keyboard.press('Escape')
+        page.locator('#search').fill('no-conference-has-this-name')
+        check('320px: empty search state fits without page overflow', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and page.locator('#clear-filter').is_visible())
+        page.locator('#clear-filter').click()
         page.evaluate('__qaGlobe.globe.renderer().forceContextLoss()')
         page.wait_for_function("document.querySelector('#map-stage').dataset.renderer==='map'")
         check('WebGL context loss restores usable map markers', page.locator('#map').is_visible() and page.locator('#markers [data-city]').count() > 0)
@@ -183,6 +230,7 @@ def main():
 
         context = browser.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
         context.add_init_script(CAPTURE); page=context.new_page(); page.goto(args.url); ready(page)
+        page.locator('#rank').select_option(''); page.locator('#category').select_option('')
         before=page.evaluate('__qaGlobe.globe.pointOfView()'); page.wait_for_timeout(700)
         after=page.evaluate('__qaGlobe.globe.pointOfView()')
         check('reduced motion starts without rotation or repeating rings', abs(before['lng']-after['lng']) < .01 and page.evaluate('__qaGlobe.globe.ringsData().length===0'))
@@ -192,9 +240,11 @@ def main():
         context.add_init_script("const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){if(type.includes('webgl'))return null;return original.call(this,type,...args)}")
         page=context.new_page();page.goto(args.url,wait_until='networkidle')
         check('unsupported WebGL retains the interactive map and agenda', page.locator('#map').is_visible() and page.locator('#schedule .event').count()>0)
+        english_ui(page, 'fallback map status and controls use English')
         if page.locator('#map').is_visible() and page.locator('#markers [data-city]').count():
             page.locator('#markers [data-city]').first.click()
         check('fallback map markers still open city conferences', page.locator('#city-pop').is_visible())
+        english_ui(page, 'fallback city popup uses English')
         context.close()
 
         # Small deterministic dataset validates deadline rollover and missing places.
@@ -213,6 +263,8 @@ def main():
             route.fulfill(content_type='text/javascript',body='window.CCF_DATA='+json.dumps({'events':records,'updatedAt':now.isoformat()})+';')
         context.route('**/conferences.js',fixture)
         page=context.new_page();page.goto(args.url);ready(page);pause(page)
+        page.locator('#rank').select_option(''); page.locator('#category').select_option('')
+        page.locator('#mode-meet').click(); page.locator('#year').select_option('2027')
         check('multiple conferences in one city share a geographic location', page.evaluate("__qaGlobe.locations.find(p=>p.name==='Paris').events.length===2"))
         check('unlocated conference stays in the schedule with a notice', page.locator('#schedule .event').count()==5 and '1' in page.locator('#unmapped').text_content())
         check('fixture starts with the earliest future deadline',page.locator('.spot-name').get_attribute('data-open')=='0')
@@ -221,7 +273,7 @@ def main():
         page.locator('#year').select_option(str(later.year))
         page.locator(f'#months [data-month="{later.month}"]').click()
         page.evaluate('__qaGlobe.globe.onPointClick()(__qaGlobe.locations[0])')
-        check('city popup uses the deadline in the selected submission month', '全文截止' in page.locator('#city-pop').text_content() and '摘要截止' not in page.locator('#city-pop').text_content())
+        check('city popup uses the deadline in the selected submission month', 'Paper deadline' in page.locator('#city-pop').text_content() and 'Abstract deadline' not in page.locator('#city-pop').text_content())
         page.locator('#mode-meet').click(); page.locator('#year').select_option('2027'); page.locator('#months [data-month="0"]').click()
         page.evaluate('window.__clockOffset=180000');page.wait_for_timeout(1400)
         check('expired deadline advances highlight and never shows negative time',page.locator('.spot-name').get_attribute('data-open')=='1' and page.evaluate("__qaGlobe.locations.filter(p=>p.hot).every(p=>p.next.id==='1')") and '-' not in page.locator('.globe-tag.hot .globe-countdown').text_content())

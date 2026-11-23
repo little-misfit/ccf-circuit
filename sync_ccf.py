@@ -107,7 +107,7 @@ def main():
         with args.input.open(encoding="utf-8") as f:
             series = json.load(f)
     else:
-        req = Request(SOURCE, headers={"User-Agent": "CCF-Circuit/1", "Accept": "application/json"})
+        req = Request(SOURCE, headers={"User-Agent": "CCF-Schedule/1", "Accept": "application/json"})
         with urlopen(req, timeout=45) as response:
             series = json.load(response)
     events = normalize(series)

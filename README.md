@@ -1,47 +1,59 @@
-# CCF Circuit · 全球会议赛历
+# CCF-Schedule
 
-在可旋转、缩放的 3D 地球上浏览 CCF A、B、C 类计算机会议，按开会日期或投稿日期规划全年日程。支持按年份、月份、学科和等级筛选，点击城市可查看同城会议，星标收藏保存在当前浏览器内。
+Explore CCF A, B and C conferences on an interactive 3D globe and track submission deadlines. The site opens with submission deadlines filtered to **Artificial Intelligence** and **CCF A**. The initial year contains the next future deadline within those filters, using UTC+8; if none is announced, it falls back to the current year. Change the year, month, subject or rank, switch to conference dates when needed, and save conferences in your browser. Resetting the filters clears the subject and rank restrictions so all conferences can be explored.
 
-## 地球交互
+The English interface uses a muted red, white and blue palette. Red highlights the next deadline; blue identifies other locations and controls.
 
-- 拖动旋转地球，滚轮、双指或加减按钮缩放；地球获得键盘焦点后也可用方向键旋转、加减键缩放。
-- 城市标记对应真实经纬度，浮动标签展示该城市在当前筛选范围内最近的投稿倒计时。转到地球背面的标签会隐藏，密集区域会自动避让。
-- 最近的未来截稿会议使用绿色标记、光环和强调标签；右侧显示完整倒计时和后续三个投稿节点。“在地球上定位”将视角转向该会议。
-- 最近是按**当前筛选范围内的下一次投稿截止时间**判断，包括摘要和全文截止，不按开会日期判断。没有已公布的未来截止时间时不生成虚假的倒计时。
-- 自动旋转可暂停，鼠标悬停和键盘阅读时暂停；手动操作后保持暂停。“减少动态效果”系统设置默认关闭自动旋转和光环动画。
-- 不支持 WebGL2 的设备使用原有平面地图，日程和收藏继续可用。地点待定、线上举办和无法可靠定位的会议保留在日程中。
+## Globe interaction
 
-## 时间与数据
+- Drag to rotate. Use the mouse wheel, a two-finger gesture or the zoom buttons to change scale. With keyboard focus on the globe, use the arrow keys to rotate and `+` / `-` to zoom.
+- City markers use geographic coordinates. Floating labels show the next submission deadline for each city within the active filters. Labels avoid one another and disappear on the far side of the Earth.
+- The nearest future deadline has a highlighted marker, ring and label. The sidebar shows its full countdown and the following three submission entries. **Locate on globe** brings its location into view.
+- “Next” means the **earliest future submission deadline within the active filters**, including abstract and paper deadlines. It does not mean the next conference date. No countdown is shown when a future deadline has not been announced.
+- Automatic rotation pauses on hover, during keyboard reading and after manual interaction. The rotation button can resume it. The system’s reduced-motion preference disables automatic rotation and repeating rings by default.
+- Devices without WebGL2 use the interactive 2D map. The schedule and saved conferences remain available. Online conferences and conferences without a reliable location remain in the schedule.
 
-会议记录来自 [CCFDDL](https://ccfddl.com/) 的[公开数据集](https://ccfddl.com/conference/allconf.json)。每轮摘要和全文投稿分别展示，倒计时依据原始时区计算，页面统一显示北京时间。会期与地点保留原文。线上、待定或无法可靠定位的地点保留在日程中。
+## Dates and data
 
-## 本地运行
+Conference records come from [CCFDDL](https://ccfddl.com/) and its [public dataset](https://ccfddl.com/conference/allconf.json). Each abstract and paper submission round is listed separately. Countdown calculations respect the source time zone; displayed submission times use **UTC+8**. The details panel also retains the original local deadline and time zone.
 
-在项目目录运行以下命令生成数据快照并启动预览。同步脚本使用 Python 3.9 及以上版本的标准库。
+Conference names, venue descriptions, dates and submission notes are preserved from the source. Saved conferences remain in the current browser; the existing storage key is retained across the rename to CCF-Schedule.
+
+## Run locally
+
+Use Python 3.9 or later to generate a data snapshot and start the preview server:
 
 ```sh
 bash run.sh sync
 bash run.sh serve
 ```
 
-浏览器中打开 http://127.0.0.1:8769 。可用 `bash run.sh serve 8000` 指定端口。
-地球图片、渲染库和会议数据均由本站提供；生成快照后，通过本地服务即可离线预览。
-请使用 HTTP 预览，浏览器对直接双击 HTML 的 WebGL 图片加载存在限制。
+Open http://127.0.0.1:8769 in your browser. To use another port, run `bash run.sh serve 8000`.
 
-`bash run.sh check` 校验数据和本地资源；`node check.cjs --browser` 还会运行浏览器检查。
-可通过 `NODE_BIN` 和 `CHROME_BIN` 指定本机的 Node 和 Chrome 可执行文件。
-启动本地服务后，安装了 Python Playwright 的环境还可运行
-`python3 tests/check_globe_browser.py --url http://127.0.0.1:8769/ --browser /path/to/chrome`，
-检查真实拖动、倒计时切换、小屏布局与 WebGL 回退；结果及截图保存在 `preview/`。
+The Earth texture, renderer and conference snapshot are served locally. After generating the snapshot, the site can be previewed offline over HTTP. Use the local server rather than opening the HTML file directly, since browser security rules can prevent WebGL textures from loading from file URLs.
 
-主要文件：`globe-view.js` 管理 3D 场景、标签避让和视角，`globe.css` 管理地球及倒计时界面，
-`app.js` 管理筛选、会议详情和时间逻辑，`venues.js` 管理城市别名及坐标。
+## Validation
 
-## 更新和发布
+`bash run.sh check` validates conference data and local assets. `node check.cjs --browser` also runs browser smoke checks. Set `NODE_BIN` or `CHROME_BIN` to select a Node or Chrome executable.
 
-GitHub Actions 每日北京时间 10:23 请求更新，也会在 main 分支提交后构建。构建先校验数据，再用 Chrome 测试地图选点、筛选、收藏和投稿日程。通过后将包含完整数据的静态网页发布到 GitHub Pages。下一次构建失败时，线上继续提供上一次成功发布的版本。
+With the local server running and Python Playwright installed, run the extended browser checks:
 
-地球使用 NASA Blue Marble 图片，3D 渲染使用本地固定版本的 globe.gl / Three.js。
-来源和许可证见 `assets/README.md` 与 `vendor/globe.gl/`。
-备用平面底图来自 Natural Earth 的 1:110m 陆地数据，经 World Atlas 汇编。
-城市标点表示举办地，会议官网提供具体地址。CCFDDL 数据的许可见 CCFDDL-LICENSE.txt。
+```sh
+python3 tests/check_globe_browser.py --url http://127.0.0.1:8769/ --browser /path/to/chrome
+```
+
+These checks cover real pointer input, deadline rollover, responsive layouts and WebGL fallback. Reports and screenshots are written to `preview/`.
+
+## Project files
+
+- `globe-view.js`: 3D rendering, floating labels and camera controls.
+- `globe.css` and `style.css`: globe, countdown and schedule presentation.
+- `app.js`: filters, conference details, saved conferences and date logic.
+- `venues.js`: city aliases and coordinates.
+- `sync_ccf.py`: CCFDDL snapshot generation.
+
+## Updates and deployment
+
+GitHub Actions refreshes the data daily at 02:23 UTC (10:23 UTC+8) and builds on pushes to `main`. It validates the data and tests the globe, filters, saved conferences and submission schedule before publishing to GitHub Pages. If a build fails, the previous successful deployment remains live.
+
+The globe uses NASA Blue Marble imagery and a locally pinned globe.gl / Three.js bundle. Sources and licenses are documented in `assets/README.md` and `vendor/globe.gl/`. The fallback map uses Natural Earth 1:110m land data via World Atlas. Markers indicate host cities; consult conference websites for exact venue addresses. See `CCFDDL-LICENSE.txt` for the dataset license.

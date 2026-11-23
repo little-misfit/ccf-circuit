@@ -59,6 +59,17 @@ if (process.argv.includes('--browser')) {
     };
     try {
       await until(() => window.__qaGlobe?.available, 'WebGL globe did not initialize');
+      verify(document.documentElement.lang === 'en', 'Document language must be English');
+      verify(document.querySelector('.brand').textContent.trim() === 'CCF-Schedule', 'Unexpected site branding');
+      verify(!/[\u3400-\u4dbf\u4e00-\u9fff]/u.test(document.body.innerText), 'Unexpected Chinese interface text');
+      verify(get('mode-deadline').getAttribute('aria-pressed') === 'true', 'Submission deadlines must be the default mode');
+      const futureAI = window.CCF_DATA.events.filter(e => e.rank === 'A' && e.category === 'AI')
+        .flatMap(e => e.deadlines.map(d => Date.parse(d.at))).filter(at => at > Date.now());
+      const defaultYear = new Date((futureAI.length ? Math.min(...futureAI) : Date.now()) + 8 * 3600000).getUTCFullYear();
+      verify(get('year').value === String(defaultYear), 'Default year must contain the next AI CCF A deadline');
+      verify(get('rank').value === 'A' && get('category').value === 'AI', 'Initial filters must be CCF A and Artificial Intelligence');
+      change('rank', '');
+      change('category', '');
       const globe = window.__qaGlobe.globe;
       verify(globe.renderer().getContext() instanceof WebGL2RenderingContext, 'Expected a real WebGL2 renderer');
       await until(() => globe.globeMaterial().map?.image?.width > 0, 'Earth texture did not load');
@@ -76,6 +87,8 @@ if (process.argv.includes('--browser')) {
       await sleep(600);
       verify(globe.pointOfView().altitude < before, 'Globe zoom did not change perspective');
       get('map-reset').click();
+      get('mode-meet').click();
+      verify(get('agenda-label').textContent === 'Conference schedule', 'Conference date mode failed');
       change('rank', 'A');
       const badges = [...document.querySelectorAll('.rows .badge')];
       verify(badges.length > 0 && badges.every(b => b.textContent === 'CCF A'), 'Rank filter failed');
@@ -89,7 +102,7 @@ if (process.argv.includes('--browser')) {
       verify(document.querySelectorAll('.event').length === 1, 'Favorite isolation failed');
       get('nav-all').click();
       get('mode-deadline').click();
-      verify(get('agenda-label').textContent === '投稿日程', 'Deadline mode failed');
+      verify(get('agenda-label').textContent === 'Submission deadlines', 'Deadline mode failed');
       change('year', String(new Date().getFullYear()));
       verify(document.querySelector('.event'), 'No deadline rows in current year');
       change('search', 'no-such-conference-zzz');

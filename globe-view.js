@@ -4,7 +4,7 @@
   const formatCountdown = at => {
     const seconds = Math.max(0, Math.floor((at - Date.now()) / 1000));
     const days = Math.floor(seconds / 86400);
-    return `${days}天 ${[Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':')}`;
+    return `${days}d ${[Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':')}`;
   };
 
   class CCFGlobe {
@@ -35,22 +35,30 @@
           .width(this.stage.clientWidth).height(this.stage.clientHeight)
           .backgroundColor('rgba(0,0,0,0)')
           .globeImageUrl('./assets/earth-blue-marble.jpg')
-          .atmosphereColor('#609ea8').atmosphereAltitude(.13)
+          .atmosphereColor('#8ba4c5').atmosphereAltitude(.12)
           .pointLat('lat').pointLng('lng')
           .pointAltitude(p => p.hot ? .035 : .009)
           .pointRadius(p => p.hot ? .6 : .3)
-          .pointColor(p => p.hot ? '#d0ff82' : p.next ? '#87e0ce' : '#76989e')
+          .pointColor(p => p.hot ? '#e2a2aa' : p.next ? '#cfddf1' : '#8296b4')
           .pointsMerge(false).pointResolution(10).pointsTransitionDuration(0)
           .pointLabel(() => '')
           .onPointClick(p => { this.stopRotation(); options.onSelect(p.key); })
           .onGlobeClick((_, event) => this.selectNearbyLocation(event))
           .onPointHover(p => { this.hoverKey = p?.key || null; this.layoutLabels(); })
           .ringLat('lat').ringLng('lng')
-          .ringColor(() => t => `rgba(193,245,107,${(1 - t) * .8})`)
+          .ringColor(() => t => `rgba(226,162,170,${(1 - t) * .8})`)
           .ringMaxRadius(3.4).ringPropagationSpeed(1.5).ringRepeatPeriod(1700)
           .onZoom(() => { this.layoutLabels(); this.updateZoomButtons(); });
         const material = this.globe.globeMaterial();
-        material.color.set('#9ab4bd');
+        material.color.set('#ffffff');
+        // Retain the geographic texture, rendered as a quiet blue-gray atlas.
+        material.onBeforeCompile = shader => {
+          shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+            #include <map_fragment>
+            float relief = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+            diffuseColor.rgb = mix(vec3(0.045, 0.075, 0.125), vec3(0.57, 0.66, 0.78), smoothstep(0.012, 0.18, relief));
+          `);
+        };
         material.shininess = 6;
         this.globe.renderer().setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
         const controls = this.globe.controls();
@@ -123,9 +131,9 @@
       this.stage.dataset.renderer = 'map';
       document.getElementById('map').removeAttribute('hidden');
       const status = document.getElementById('globe-status');
-      status.textContent = '当前设备使用平面地图';
+      status.textContent = 'Map view on this device';
       status.hidden = false;
-      document.getElementById('globe-hint').textContent = '放大后可拖动地图';
+      document.getElementById('globe-hint').textContent = 'Zoom in to pan the map';
       document.getElementById('globe-motion').hidden = true;
       this.options.onUnavailable?.();
     }
@@ -139,7 +147,7 @@
       const button = document.getElementById('globe-motion');
       button.textContent = this.playing ? 'Ⅱ' : '▷';
       button.setAttribute('aria-pressed', String(this.playing));
-      button.setAttribute('aria-label', this.playing ? '暂停自动旋转' : '开始自动旋转');
+      button.setAttribute('aria-label', this.playing ? 'Pause rotation' : 'Start rotation');
       button.title = button.getAttribute('aria-label');
     }
 
@@ -182,9 +190,10 @@
         if (p.next) entry.button.dataset.open = p.next.id;
         else delete entry.button.dataset.open;
         entry.heading.textContent = p.next ? `${p.next.title} ${p.next.year}` : p.name;
-        entry.location.textContent = p.next ? `${p.name} · ${p.next.type === 'abstract' ? '摘要' : '全文'}` : `${p.name} · ${p.events.length} 场`;
-        entry.kind.textContent = p.hot ? '最近截稿' : p.next ? (p.next.type === 'abstract' ? '摘要截止' : '全文截止') : '查看城市会议';
-        entry.button.setAttribute('aria-label', `${entry.heading.textContent}，${p.name}，${p.next ? (p.next.type === 'abstract' ? '摘要' : '全文') + '投稿倒计时，查看详情' : '查看会议'}`);
+        entry.location.textContent = p.next ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}` : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
+        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : 'View conferences';
+        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : 'View conferences'}`);
+        entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
       this.updateCountdowns();
       const hot = locations.find(p => p.hot);
@@ -196,7 +205,7 @@
 
     updateCountdowns() {
       for (const { point, timer } of this.labels.values()) {
-        timer.textContent = point.next ? formatCountdown(point.next.at) : '暂无待截止投稿';
+        timer.textContent = point.next ? formatCountdown(point.next.at) : 'No upcoming deadline';
       }
     }
 
@@ -268,8 +277,8 @@
       const camera = this.globe.camera().position;
       const radius = this.globe.getGlobeRadius();
       const maxLabels = width < 600 ? 3 : 5;
-      const tagWidth = width < 600 ? 142 : 174;
-      const tagHeight = width < 600 ? 86 : 92;
+      const tagWidth = width < 600 ? 156 : 190;
+      const tagHeight = width < 600 ? 90 : 96;
       const occupied = [];
       const candidates = [...this.locations].filter(p => p.next || p.key === this.hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
