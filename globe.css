@@ -35,6 +35,9 @@
 .globe-connectors path.hot { stroke: #dda5ad; opacity: .9; }
 .globe-anchors { display: contents; pointer-events: none; }
 .globe-anchor { position: absolute; left: anchor(center); top: anchor(center); width: 0; height: 0; visibility: hidden; pointer-events: none; }
+.globe-pin { position: absolute; left: 0; top: 0; border: 1.5px solid #f3f7ff; border-radius: 50%; box-shadow: 0 0 0 2px #111e30, 0 2px 6px #03091280; pointer-events: none; }
+.globe-pin.hot { border-width: 2px; }
+.globe-pin.hovered { border-color: #fff; box-shadow: 0 0 0 3px #192f49, 0 0 0 4px #d4e4fb80; }
 .globe-ripple { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
 .globe-ripple::before, .globe-ripple::after { content: ''; position: absolute; left: calc(-1 * var(--ripple-radius)); top: calc(-1 * var(--ripple-radius)); width: calc(2 * var(--ripple-radius)); height: calc(2 * var(--ripple-radius)); border: 1.5px solid currentColor; border-radius: 50%; animation: deadline-ripple 2.6s ease-out infinite; }
 .globe-ripple::after { animation-delay: -1.3s; }

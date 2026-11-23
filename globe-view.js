@@ -14,6 +14,7 @@
     return '#' + from.map((value, i) => Math.round(value + (to[i] - value) * amount).toString(16).padStart(2, '0')).join('');
   };
   const accentFor = point => brandFor(point)?.color || '#526d90';
+  const markerSizeFor = point => point.hot ? .035 : .028;
   const formatCountdown = at => {
     const seconds = Math.max(0, Math.floor((at - Date.now()) / 1000));
     const days = Math.floor(seconds / 86400);
@@ -274,7 +275,7 @@
       this.locations = locations.map(p => ({ ...p, markerId: this.prefix + p.key.replace(/[^\w-]/g, '_') }));
       const keys = new Set(locations.map(p => p.key));
       for (const [key, entry] of this.labels) {
-        if (!keys.has(key)) { entry.button.remove(); entry.line.remove(); entry.anchor.remove(); entry.ripple.remove(); this.labels.delete(key); }
+        if (!keys.has(key)) { entry.button.remove(); entry.line.remove(); entry.anchor.remove(); entry.ripple.remove(); entry.pin.remove(); this.labels.delete(key); }
       }
       for (const p of this.locations) {
         let entry = this.labels.get(p.key);
@@ -303,9 +304,11 @@
           anchor.style.positionAnchor = `--cobe-${p.markerId}`;
           const ripple = document.createElement('span'); ripple.className = 'globe-ripple';
           ripple.dataset.city = p.key; ripple.hidden = true;
-          this.anchorLayer.append(anchor, ripple);
+          const pin = document.createElement('span'); pin.className = 'globe-pin';
+          pin.dataset.city = p.key; pin.hidden = true;
+          this.anchorLayer.append(anchor, ripple, pin);
           this.layer.append(button); this.connectors.append(line);
-          entry = { button, heading, location, timer, kind, line, logo, monogram, anchor, ripple };
+          entry = { button, heading, location, timer, kind, line, logo, monogram, anchor, ripple, pin };
           this.labels.set(p.key, entry);
         }
         entry.point = p;
@@ -317,6 +320,8 @@
         entry.button.style.setProperty('--tag-logo-background', brand?.background || '#ffffff');
         entry.line.style.stroke = mix(accent, '#ffffff', .65);
         entry.ripple.style.color = mix(accent, '#ffffff', .55);
+        entry.pin.style.backgroundColor = mix(accent, '#ffffff', p.hot ? .45 : .3);
+        entry.pin.classList.toggle('hot', p.hot);
         entry.monogram.textContent = card ? card.title.slice(0, 5) : 'CITY';
         entry.logo.hidden = !brand?.logo || entry.logo.dataset.failed === brand.logo;
         entry.monogram.hidden = !entry.logo.hidden;
@@ -336,7 +341,7 @@
         entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
       this.markers = this.locations.map(p => ({
-        id: p.markerId, location: [p.lat, p.lng], size: p.hot ? .035 : .019,
+        id: p.markerId, location: [p.lat, p.lng], size: markerSizeFor(p),
         color: rgb(mix(accentFor(p), '#ffffff', p.hot ? .45 : .3)).map(value => value / 255)
       }));
       this.globe.update({ markers: this.markers });
@@ -418,12 +423,20 @@
       const globeScreenRadius = this.globeRadius;
       const markers = this.locations.map(point => {
         const at = this.projectLocation(point), entry = this.labels.get(point.key);
+        // Match COBE's projected marker diameter, with a legible minimum on phones.
+        const pinSize = Math.max(point.hot ? 11 : 8, this.globeRadius * markerSizeFor(point) / .8);
+        entry.pin.hidden = !at.visible;
+        entry.pin.classList.toggle('hovered', point.key === this.hoverKey);
+        if (at.visible) {
+          entry.pin.style.width = entry.pin.style.height = pinSize + 'px';
+          entry.pin.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
+        }
         entry.ripple.hidden = !point.hot || !at.visible;
         if (!entry.ripple.hidden) {
           entry.ripple.style.setProperty('--ripple-radius', this.rippleRadius + 'px');
           entry.ripple.style.transform = `translate(${at.x}px,${at.y}px)`;
         }
-        return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : 10 };
+        return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : Math.max(10, pinSize / 2 + 6) };
       }).filter(point => point.visible);
       const occupied = [];
       const candidates = [...this.locations].filter(p => cardFor(p) || p.key === this.hoverKey)
