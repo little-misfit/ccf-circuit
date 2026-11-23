@@ -26,6 +26,7 @@ jobs:
       - name: Validate and stage the site
         run: |
           node --check app.js
+          node --check bootstrap.js
           node --check globe-view.js
           node --check conference-brands.js
           node --check venues.js

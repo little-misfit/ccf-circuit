@@ -14,12 +14,16 @@
     return '#' + from.map((value, i) => Math.round(value + (to[i] - value) * amount).toString(16).padStart(2, '0')).join('');
   };
   const accentFor = point => brandFor(point)?.color || '#526d90';
-  const rippleRadius = 9;
   const formatCountdown = at => {
     const seconds = Math.max(0, Math.floor((at - Date.now()) / 1000));
     const days = Math.floor(seconds / 86400);
     return `${days}d ${[Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':')}`;
   };
+
+  let instanceCount = 0;
+  const radians = degrees => degrees * Math.PI / 180;
+  const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+  const angleDelta = angle => Math.atan2(Math.sin(angle), Math.cos(angle));
 
   class CCFGlobe {
     constructor(element, options) {
@@ -27,126 +31,111 @@
       this.stage = element.parentElement;
       this.options = options;
       this.locations = [];
+      this.markers = [];
       this.labels = new Map();
       this.available = false;
       this.playing = !motionPreference.matches;
       this.hovered = false;
       this.focused = false;
       this.visible = true;
-      this.lastFrame = 0;
       this.highlight = null;
       this.hoverKey = null;
+      this.pointers = new Map();
+      this.prefix = `ccf-${++instanceCount}-`;
       this.layer = document.getElementById('globe-labels');
       this.connectors = this.stage.querySelector('.globe-connectors');
+      this.anchorLayer = document.createElement('div');
+      this.anchorLayer.className = 'globe-anchors';
+      this.anchorLayer.setAttribute('aria-hidden', 'true');
+      this.stage.insertBefore(this.anchorLayer, this.connectors);
+      this.nativeAnchors = CSS.supports('position-anchor: --cobe-probe') && CSS.supports('left: anchor(center)');
+      this.width = this.stage.clientWidth;
+      this.height = this.stage.clientHeight;
+      this.view = { phi: -radians(100) - Math.PI / 2, theta: radians(25), scale: this.homeScale() };
+      this.canvas = document.createElement('canvas');
+      this.canvas.setAttribute('aria-hidden', 'true');
+      element.append(this.canvas);
       try {
-        if (typeof window.Globe !== 'function') throw new Error('Globe library unavailable');
-        this.globe = new Globe(element, {
-          animateIn: false,
-          waitForGlobeReady: false,
-          rendererConfig: { antialias: true, alpha: true, powerPreference: 'low-power' }
+        if (typeof window.createCobe !== 'function') throw new Error('COBE unavailable');
+        this.globe = window.createCobe(this.canvas, {
+          width: this.width, height: this.height,
+          devicePixelRatio: Math.min(devicePixelRatio || 1, 2),
+          ...this.view, offset: this.offset, dark: 1, diffuse: 1.4,
+          mapSamples: 22000, mapBrightness: 5.8, mapBaseBrightness: .08,
+          baseColor: [.38, .46, .58], markerColor: [.78, .85, .96],
+          glowColor: [.16, .24, .38], markerElevation: .01,
+          opacity: 1, markers: [],
+          context: { alpha: true, antialias: true, powerPreference: 'low-power' }
         });
-        this.globe
-          .width(this.stage.clientWidth).height(this.stage.clientHeight)
-          .backgroundColor('rgba(0,0,0,0)')
-          .globeImageUrl('./assets/earth-blue-marble.jpg')
-          .atmosphereColor('#8ba4c5').atmosphereAltitude(.12)
-          .pointLat('lat').pointLng('lng')
-          .pointAltitude(p => p.hot ? .025 : .009)
-          .pointRadius(p => p.hot ? 1.15 : .48)
-          .pointColor(p => cardFor(p) ? mix(accentFor(p), '#ffffff', p.hot ? .45 : .65) : '#8296b4')
-          .pointsMerge(false).pointResolution(20).pointsTransitionDuration(0)
-          .pointLabel(() => '')
-          .onPointClick(p => { this.stopRotation(); options.onSelect(p.key); })
-          .onGlobeClick((_, event) => this.selectNearbyLocation(event))
-          .onPointHover(p => { this.hoverKey = p?.key || null; this.layoutLabels(); })
-          .ringLat('lat').ringLng('lng')
-          .ringColor(p => t => `rgba(${rgb(mix(accentFor(p), '#ffffff', .55)).join(',')},${Math.pow(1 - t, .7) * .95})`)
-          .ringMaxRadius(rippleRadius).ringPropagationSpeed(3.6).ringRepeatPeriod(1300)
-          .onZoom(() => { this.layoutLabels(); this.updateZoomButtons(); });
-        const material = this.globe.globeMaterial();
-        material.color.set('#ffffff');
-        // Retain the geographic texture, rendered as a quiet blue-gray atlas.
-        material.onBeforeCompile = shader => {
-          shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
-            #include <map_fragment>
-            float relief = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-            diffuseColor.rgb = mix(vec3(0.045, 0.075, 0.125), vec3(0.57, 0.66, 0.78), smoothstep(0.012, 0.18, relief));
-          `);
-        };
-        material.shininess = 6;
-        this.globe.renderer().setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
-        const controls = this.globe.controls();
-        controls.enablePan = false;
-        controls.enableDamping = true;
-        controls.dampingFactor = .08;
-        controls.minDistance = 150;
-        controls.maxDistance = 540;
-        controls.autoRotateSpeed = .35;
-        controls.rotateSpeed = .65;
-        controls.zoomSpeed = .7;
-        controls.addEventListener('start', () => this.stopRotation());
-        this.globe.pointOfView({ lat: 25, lng: 100, altitude: this.homeAltitude() }, 0);
+        this.context = this.canvas.getContext('webgl2') || this.canvas.getContext('webgl');
+        if (!this.context || this.context.isContextLost()) throw new Error('WebGL unavailable');
+        const program = this.context.getParameter(this.context.CURRENT_PROGRAM);
+        if (!program || !this.context.getProgramParameter(program, this.context.LINK_STATUS)) throw new Error('Globe shaders unavailable');
+        if (!this.context.drawArraysInstanced && !this.context.getExtension('ANGLE_instanced_arrays')) throw new Error('Geographic markers unavailable');
+        this.canvas.parentElement.append(this.anchorLayer);
         this.available = true;
-        this.stage.dataset.renderer = 'webgl';
+        this.warmupUntil = performance.now() + 1500;
+        this.stage.dataset.renderer = 'cobe';
         document.getElementById('globe-status').hidden = true;
-        this.globe.renderer().domElement.addEventListener('webglcontextlost', event => {
-          event.preventDefault();
-          this.fallback();
-        });
-        new ResizeObserver(() => {
-          if (!this.available) return;
-          this.globe.width(this.stage.clientWidth).height(this.stage.clientHeight);
-          this.layoutLabels();
-        }).observe(this.stage);
-        new IntersectionObserver(entries => {
+        this.canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); this.fallback(); });
+        this.resizeObserver = new ResizeObserver(() => this.resize());
+        this.resizeObserver.observe(this.stage);
+        this.intersectionObserver = new IntersectionObserver(entries => {
           this.visible = entries[0].isIntersecting;
           this.syncMotion();
-        }).observe(this.stage);
+        });
+        this.intersectionObserver.observe(this.stage);
         this.stage.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') { this.hovered = true; this.syncMotion(); } });
-        this.stage.addEventListener('pointerleave', () => { this.hovered = false; this.syncMotion(); });
+        this.stage.addEventListener('pointerleave', () => { this.hovered = false; this.hoverKey = null; this.syncMotion(); });
         this.stage.addEventListener('focusin', e => { this.focused = e.target.matches(':focus-visible'); this.syncMotion(); });
         this.stage.addEventListener('focusout', e => { this.focused = this.stage.contains(e.relatedTarget) && e.relatedTarget.matches(':focus-visible'); this.syncMotion(); });
         document.addEventListener('visibilitychange', () => this.syncMotion());
         motionPreference.addEventListener('change', () => {
-          if (motionPreference.matches) this.playing = false;
-          this.setRings();
-          this.syncMotion();
+          if (motionPreference.matches) {
+            this.playing = false;
+            if (this.transition) { this.view = this.transition.to; this.transition = null; }
+          }
+          this.syncMotion(); this.draw();
         });
         element.addEventListener('keydown', event => this.keydown(event));
+        this.bindPointerControls();
         this.syncMotion();
-        const frame = now => {
-          if (!this.available) return;
-          if (this.visible && !document.hidden && now - this.lastFrame > 32) {
-            this.lastFrame = now;
-            this.layoutLabels();
-          }
-          requestAnimationFrame(frame);
-        };
-        requestAnimationFrame(frame);
+        this.draw();
       } catch (error) {
         this.fallback();
       }
     }
 
-    homeAltitude() {
-      const width = this.stage.clientWidth, height = this.stage.clientHeight;
-      const base = width < 600 ? 2.35 : 2.05;
-      const halfFov = (this.globe.camera().fov / 2) * Math.PI / 180;
-      const angle = Math.atan(Math.tan(halfFov) * Math.min(1, width / height));
-      return Math.max(base, 1.08 / Math.sin(angle) - 1);
+    homeScale() { return Math.min(.98, this.width / this.height * 1.1); }
+    get offset() { return [0, this.width < 600 ? 90 : 0]; }
+    get globeRadius() { return this.height * .4 * this.view.scale; }
+    get rippleRadius() { return clamp(this.globeRadius * .17, 24, 54); }
+
+    resize() {
+      if (!this.available) return;
+      const ratio = this.view.scale / this.homeScale();
+      this.width = this.stage.clientWidth;
+      this.height = this.stage.clientHeight;
+      this.transition = null;
+      this.view.scale = this.homeScale() * ratio;
+      // COBE 2.0.1 multiplies CSS dimensions by DPR internally; send both on resize.
+      this.globe.update({ width: this.width, height: this.height, ...this.view, offset: this.offset });
+      this.layoutLabels(); this.updateZoomButtons();
     }
 
     fallback() {
       this.available = false;
-      this.globe?.pauseAnimation();
+      cancelAnimationFrame(this.frame);
+      this.resizeObserver?.disconnect(); this.intersectionObserver?.disconnect();
+      this.globe?.destroy();
       this.element.hidden = true;
       this.layer.hidden = true;
+      this.anchorLayer.hidden = true;
       this.connectors.setAttribute('hidden', '');
       this.stage.dataset.renderer = 'map';
       document.getElementById('map').removeAttribute('hidden');
       const status = document.getElementById('globe-status');
-      status.textContent = 'Map view on this device';
-      status.hidden = false;
+      status.textContent = 'Map view on this device'; status.hidden = false;
       document.getElementById('globe-hint').textContent = 'Zoom in to pan the map';
       document.getElementById('globe-motion').hidden = true;
       this.options.onUnavailable?.();
@@ -155,34 +144,139 @@
     syncMotion() {
       if (!this.available) return;
       const active = this.visible && !document.hidden;
-      if (active) this.globe.resumeAnimation();
-      else this.globe.pauseAnimation();
-      this.globe.controls().autoRotate = active && this.playing && !this.hovered && !this.focused;
+      this.stage.classList.toggle('motion-paused', !active);
       const button = document.getElementById('globe-motion');
       button.textContent = this.playing ? 'Ⅱ' : '▷';
       button.setAttribute('aria-pressed', String(this.playing));
       button.setAttribute('aria-label', this.playing ? 'Pause rotation' : 'Start rotation');
       button.title = button.getAttribute('aria-label');
+      cancelAnimationFrame(this.frame);
+      this.lastFrame = performance.now();
+      if (active) {
+        this.draw();
+        this.frame = requestAnimationFrame(now => this.animate(now));
+      }
+    }
+
+    animate(now) {
+      if (!this.available || !this.visible || document.hidden) return;
+      const seconds = Math.min((now - this.lastFrame) / 1000, .05);
+      this.lastFrame = now;
+      if (this.transition) {
+        const t = clamp((now - this.transition.start) / this.transition.duration, 0, 1);
+        const eased = t * t * (3 - 2 * t);
+        for (const key of ['phi', 'theta', 'scale']) this.view[key] = this.transition.from[key] + (this.transition.to[key] - this.transition.from[key]) * eased;
+        if (t === 1) this.transition = null;
+        this.draw();
+      } else if (this.playing && !this.hovered && !this.focused && !this.pointers.size) {
+        this.view.phi += seconds * .08;
+        this.draw();
+      } else if (now < this.warmupUntil) {
+        // The bundled map decodes asynchronously without a readiness callback.
+        // Initial still frames let it appear with reduced motion or paused rotation.
+        this.draw();
+      }
+      if (this.transition || now < this.warmupUntil || (this.playing && !this.hovered && !this.focused)) this.frame = requestAnimationFrame(time => this.animate(time));
+    }
+
+    draw() {
+      if (!this.available) return;
+      this.globe.update({ ...this.view, offset: this.offset });
+      this.layoutLabels(); this.updateZoomButtons();
+    }
+
+    setView(partial, animate = false) {
+      if (!this.available) return;
+      const to = { ...this.view, ...partial };
+      to.phi = this.view.phi + angleDelta(to.phi - this.view.phi);
+      to.theta = clamp(to.theta, -Math.PI / 2 + .02, Math.PI / 2 - .02);
+      to.scale = clamp(to.scale, this.homeScale() * .65, this.homeScale() * 2.8);
+      if (animate && !motionPreference.matches) {
+        this.transition = { from: { ...this.view }, to, start: performance.now(), duration: typeof animate === 'number' ? animate : 750 };
+        this.syncMotion();
+      } else {
+        this.transition = null; this.view = to; this.draw();
+      }
     }
 
     stopRotation() { this.playing = false; this.syncMotion(); }
     toggleRotation() { this.playing = !this.playing; this.syncMotion(); }
 
-    setRings() {
-      if (!this.available) return;
-      this.globe.ringsData(motionPreference.matches ? [] : this.locations.filter(p => p.hot));
+    bindPointerControls() {
+      this.canvas.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        this.stopRotation(); this.transition = null;
+        this.element.focus({ preventScroll: true });
+        this.canvas.setPointerCapture(event.pointerId);
+        this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        this.pointerStart = { x: event.clientX, y: event.clientY };
+        this.dragged = this.pointers.size > 1;
+        this.canvas.classList.add('dragging');
+      });
+      this.canvas.addEventListener('pointermove', event => {
+        const previous = this.pointers.get(event.pointerId);
+        if (!previous) {
+          const point = this.nearbyLocation(event);
+          this.canvas.style.cursor = point ? 'pointer' : 'grab';
+          if ((point?.key || null) !== this.hoverKey) { this.hoverKey = point?.key || null; this.layoutLabels(); }
+          return;
+        }
+        const current = { x: event.clientX, y: event.clientY };
+        if (this.pointers.size > 1) {
+          const other = [...this.pointers].find(([id]) => id !== event.pointerId)[1];
+          const before = Math.hypot(previous.x - other.x, previous.y - other.y);
+          const after = Math.hypot(current.x - other.x, current.y - other.y);
+          if (before > 2) this.setView({ scale: this.view.scale * after / before });
+          this.dragged = true;
+        } else {
+          if (Math.hypot(current.x - this.pointerStart.x, current.y - this.pointerStart.y) > 5) this.dragged = true;
+          const speed = Math.PI / (2 * this.globeRadius);
+          this.setView({ phi: this.view.phi + (current.x - previous.x) * speed, theta: this.view.theta + (current.y - previous.y) * speed });
+        }
+        this.pointers.set(event.pointerId, current);
+      });
+      const end = event => {
+        const tracked = this.pointers.has(event.pointerId);
+        this.pointers.delete(event.pointerId);
+        if (!this.pointers.size) this.canvas.classList.remove('dragging');
+        if (tracked && event.type === 'pointerup' && !this.dragged) this.selectNearbyLocation(event);
+      };
+      this.canvas.addEventListener('pointerup', end);
+      this.canvas.addEventListener('pointercancel', end);
+      this.canvas.addEventListener('lostpointercapture', end);
+      this.canvas.addEventListener('wheel', event => {
+        event.preventDefault(); this.stopRotation();
+        this.setView({ scale: this.view.scale * Math.exp(-clamp(event.deltaY, -100, 100) * .002) });
+      }, { passive: false });
+    }
+
+    projectLocation(point) {
+      const entry = this.labels.get(point.key);
+      if (this.nativeAnchors && entry) {
+        const bounds = this.stage.getBoundingClientRect();
+        const at = entry.anchor.getBoundingClientRect();
+        const visible = getComputedStyle(document.documentElement).getPropertyValue(`--cobe-visible-${point.markerId}`).trim();
+        return { x: at.left - bounds.left, y: at.top - bounds.top, visible: Boolean(visible && visible !== '0') };
+      }
+      // Progressive fallback for browsers without CSS anchors. These equations
+      // match the pinned COBE 2.0.1 projection; rendering still belongs to COBE.
+      const lat = radians(point.lat), lon = radians(point.lng) - Math.PI, r = .81;
+      const x = -Math.cos(lat) * Math.cos(lon) * r, y = Math.sin(lat) * r, z = Math.cos(lat) * Math.sin(lon) * r;
+      const { phi, theta, scale } = this.view;
+      const rx = Math.cos(phi) * x + Math.sin(phi) * z;
+      const ry = Math.sin(phi) * Math.sin(theta) * x + Math.cos(theta) * y - Math.cos(phi) * Math.sin(theta) * z;
+      const rz = -Math.sin(phi) * Math.cos(theta) * x + Math.sin(theta) * y + Math.cos(phi) * Math.cos(theta) * z;
+      return { x: this.width / 2 + rx * this.height * scale / 2, y: this.height / 2 - ry * this.height * scale / 2 + this.offset[1] * scale / 2, visible: rz >= 0 || rx * rx + ry * ry >= .64 };
     }
 
     setLocations(locations) {
       if (!this.available) return;
-      this.locations = locations;
-      this.globe.pointsData(locations);
-      this.setRings();
+      this.locations = locations.map(p => ({ ...p, markerId: this.prefix + p.key.replace(/[^\w-]/g, '_') }));
       const keys = new Set(locations.map(p => p.key));
       for (const [key, entry] of this.labels) {
-        if (!keys.has(key)) { entry.button.remove(); entry.line.remove(); this.labels.delete(key); }
+        if (!keys.has(key)) { entry.button.remove(); entry.line.remove(); entry.anchor.remove(); entry.ripple.remove(); this.labels.delete(key); }
       }
-      for (const p of locations) {
+      for (const p of this.locations) {
         let entry = this.labels.get(p.key);
         if (!entry) {
           const button = document.createElement('button');
@@ -205,8 +299,13 @@
           header.append(logoFrame, identity);
           button.append(header, timer, kind);
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const anchor = document.createElement('span'); anchor.className = 'globe-anchor';
+          anchor.style.positionAnchor = `--cobe-${p.markerId}`;
+          const ripple = document.createElement('span'); ripple.className = 'globe-ripple';
+          ripple.dataset.city = p.key; ripple.hidden = true;
+          this.anchorLayer.append(anchor, ripple);
           this.layer.append(button); this.connectors.append(line);
-          entry = { button, heading, location, timer, kind, line, logo, monogram };
+          entry = { button, heading, location, timer, kind, line, logo, monogram, anchor, ripple };
           this.labels.set(p.key, entry);
         }
         entry.point = p;
@@ -217,6 +316,7 @@
         })) entry.button.style.setProperty('--tag-' + name, value);
         entry.button.style.setProperty('--tag-logo-background', brand?.background || '#ffffff');
         entry.line.style.stroke = mix(accent, '#ffffff', .65);
+        entry.ripple.style.color = mix(accent, '#ffffff', .55);
         entry.monogram.textContent = card ? card.title.slice(0, 5) : 'CITY';
         entry.logo.hidden = !brand?.logo || entry.logo.dataset.failed === brand.logo;
         entry.monogram.hidden = !entry.logo.hidden;
@@ -235,8 +335,15 @@
         entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : p.undated ? 'Deadline to be announced. View details' : 'View conferences'}`);
         entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
+      this.markers = this.locations.map(p => ({
+        id: p.markerId, location: [p.lat, p.lng], size: p.hot ? .035 : .019,
+        color: rgb(mix(accentFor(p), '#ffffff', p.hot ? .45 : .3)).map(value => value / 255)
+      }));
+      this.globe.update({ markers: this.markers });
+      // Anchor-positioned DOM must follow COBE's anchors in their containing block.
+      this.canvas.parentElement.append(this.anchorLayer);
       this.updateCountdowns();
-      const focus = locations.find(p => p.hot) || (locations.length === 1 ? locations[0] : null);
+      const focus = this.locations.find(p => p.hot) || (this.locations.length === 1 ? this.locations[0] : null);
       const target = focus ? `${focus.key}:${cardFor(focus)?.id}:${focus.next?.at}` : null;
       if (target && target !== this.highlight) this.focusLocation(focus, this.highlight !== null);
       this.highlight = target;
@@ -250,72 +357,56 @@
     }
 
     focusLocation(point, animate = true) {
-      if (!this.available || !point) return;
-      this.globe.pointOfView({ lat: point.lat, lng: point.lng, altitude: this.homeAltitude() }, animate && !motionPreference.matches ? 850 : 0);
+      if (!point) return;
+      this.setView({ phi: -radians(point.lng) - Math.PI / 2, theta: radians(point.lat), scale: this.homeScale() }, animate);
     }
 
-    focusNearest() {
-      this.stopRotation();
-      this.focusLocation(this.locations.find(p => p.hot));
+    focusNearest() { this.stopRotation(); this.focusLocation(this.locations.find(p => p.hot)); }
+
+    nearbyLocation(event) {
+      const bounds = this.stage.getBoundingClientRect();
+      const mouse = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      let nearest = null, distance = matchMedia('(pointer: coarse)').matches ? 28 : 18;
+      for (const point of this.locations) {
+        const at = this.projectLocation(point);
+        if (!at.visible) continue;
+        const delta = Math.hypot(at.x - mouse.x, at.y - mouse.y);
+        if (delta < distance) { nearest = point; distance = delta; }
+      }
+      return nearest;
     }
 
     selectNearbyLocation(event) {
-      const bounds = this.element.getBoundingClientRect();
-      const mouse = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-      const camera = this.globe.camera().position;
-      const radius = this.globe.getGlobeRadius();
-      let nearest = null;
-      let distance = matchMedia('(pointer: coarse)').matches ? 28 : 18;
-      for (const point of this.locations) {
-        const xyz = this.globe.getCoords(point.lat, point.lng);
-        if (xyz.x * camera.x + xyz.y * camera.y + xyz.z * camera.z <= radius * radius) continue;
-        const screen = this.globe.getScreenCoords(point.lat, point.lng, .01);
-        const delta = Math.hypot(screen.x - mouse.x, screen.y - mouse.y);
-        if (delta < distance) { nearest = point; distance = delta; }
-      }
-      if (nearest) { this.stopRotation(); this.options.onSelect(nearest.key); }
+      const point = this.nearbyLocation(event);
+      if (point) { this.stopRotation(); this.options.onSelect(point.key); }
     }
 
     reset() {
-      const target = this.locations.find(p => p.hot) || (this.locations.length === 1 ? this.locations[0] : { lat: 25, lng: 100 });
-      this.focusLocation(target);
+      this.focusLocation(this.locations.find(p => p.hot) || (this.locations.length === 1 ? this.locations[0] : { lat: 25, lng: 100 }));
     }
 
-    zoom(factor) {
-      if (!this.available) return;
-      this.stopRotation();
-      const current = this.globe.pointOfView();
-      this.globe.pointOfView({ altitude: Math.max(.5, Math.min(4.4, (current.altitude + 1) / factor - 1)) }, motionPreference.matches ? 0 : 260);
-    }
+    zoom(factor) { this.stopRotation(); this.setView({ scale: this.view.scale * factor }, 240); }
 
     updateZoomButtons() {
-      if (!this.available) return;
-      const altitude = this.globe.pointOfView().altitude;
-      document.getElementById('zoom-in').disabled = altitude < .52;
-      document.getElementById('zoom-out').disabled = altitude > 4.38;
+      const ratio = this.view.scale / this.homeScale();
+      document.getElementById('zoom-in').disabled = ratio > 2.79;
+      document.getElementById('zoom-out').disabled = ratio < .66;
     }
 
     keydown(event) {
       if (!this.available || event.target !== this.element) return;
-      const current = this.globe.pointOfView();
-      const positions = {
-        ArrowLeft: { lng: current.lng - 12 }, ArrowRight: { lng: current.lng + 12 },
-        ArrowUp: { lat: Math.min(85, current.lat + 10) }, ArrowDown: { lat: Math.max(-85, current.lat - 10) }
+      const moves = {
+        ArrowLeft: { phi: this.view.phi + radians(12) }, ArrowRight: { phi: this.view.phi - radians(12) },
+        ArrowUp: { theta: this.view.theta + radians(10) }, ArrowDown: { theta: this.view.theta - radians(10) }
       };
-      if (positions[event.key]) {
-        event.preventDefault(); this.stopRotation();
-        this.globe.pointOfView(positions[event.key], motionPreference.matches ? 0 : 180);
-      } else if (['+', '=', '-'].includes(event.key)) {
-        event.preventDefault(); this.zoom(event.key === '-' ? .85 : 1.18);
-      }
+      if (moves[event.key]) { event.preventDefault(); this.stopRotation(); this.setView(moves[event.key], 180); }
+      else if (['+', '=', '-'].includes(event.key)) { event.preventDefault(); this.zoom(event.key === '-' ? .85 : 1.18); }
     }
 
     layoutLabels() {
       if (!this.available || !this.locations.length) return;
       const width = this.stage.clientWidth, height = this.stage.clientHeight;
       this.stage.classList.toggle('compact-globe', width < 600);
-      const camera = this.globe.camera().position;
-      const radius = this.globe.getGlobeRadius();
       const maxLabels = width < 600 ? 2 : 5;
       const tagWidth = width < 600 ? 178 : 196;
       const tagHeight = width < 600 ? 84 : 100;
@@ -324,31 +415,26 @@
         const dy = marker.y - Math.max(y, Math.min(y + boxHeight, marker.y));
         return Math.hypot(dx, dy) < marker.clearance;
       };
-      const focalLength = height / (2 * Math.tan(this.globe.camera().fov * Math.PI / 360));
-      const globeScreenRadius = focalLength * radius / Math.sqrt(camera.lengthSq() - radius * radius);
-      const markers = [];
-      for (const point of this.locations) {
-        const coords = this.globe.getCoords(point.lat, point.lng);
-        // Keep every visible location clear, even if it has no floating card.
-        if (coords.x * camera.x + coords.y * camera.y + coords.z * camera.z <= radius * radius) continue;
-        const at = this.globe.getScreenCoords(point.lat, point.lng, point.hot ? .025 : .009);
-        const distance = Math.hypot(coords.x - camera.x, coords.y - camera.y, coords.z - camera.z);
-        const clearance = point.hot ? Math.max(26, focalLength * radius * Math.sin(rippleRadius * Math.PI / 180) / distance + 8) : 10;
-        markers.push({ ...at, key: point.key, clearance });
-      }
+      const globeScreenRadius = this.globeRadius;
+      const markers = this.locations.map(point => {
+        const at = this.projectLocation(point), entry = this.labels.get(point.key);
+        entry.ripple.hidden = !point.hot || !at.visible;
+        if (!entry.ripple.hidden) {
+          entry.ripple.style.setProperty('--ripple-radius', this.rippleRadius + 'px');
+          entry.ripple.style.transform = `translate(${at.x}px,${at.y}px)`;
+        }
+        return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : 10 };
+      }).filter(point => point.visible);
       const occupied = [];
       const candidates = [...this.locations].filter(p => cardFor(p) || p.key === this.hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
       const visible = new Set();
       for (const p of candidates) {
         if (occupied.length >= maxLabels) break;
-        const coords = this.globe.getCoords(p.lat, p.lng, 0);
-        // Perspective horizon: a surface point faces the camera only when
-        // its normal has a positive dot product with the viewing direction.
-        if (coords.x * camera.x + coords.y * camera.y + coords.z * camera.z <= radius * radius * 1.08) continue;
-        const at = this.globe.getScreenCoords(p.lat, p.lng, p.hot ? .025 : .009);
-        if (at.x < 4 || at.x > width - 4 || at.y < 4 || at.y > height - 28) continue;
         const marker = markers.find(m => m.key === p.key);
+        if (!marker) continue;
+        const at = marker;
+        if (at.x < 4 || at.x > width - 4 || at.y < 4 || at.y > height - 28) continue;
         const gap = (marker?.clearance || 10) + 14;
         const right = Math.max(at.x + gap, width / 2 + globeScreenRadius + 14);
         const left = Math.min(at.x - tagWidth - gap, width / 2 - globeScreenRadius - tagWidth - 14);
@@ -357,6 +443,7 @@
         choices.push([at.x - tagWidth / 2, at.y - tagHeight - gap], [at.x - tagWidth / 2, at.y + gap]);
         const minY = p.hot && width >= 600 ? 82 : 64;
         const maxY = height - tagHeight - (width < 600 ? 86 : 65);
+        if (width < 600 && (p.hot || candidates.length === 1)) choices.unshift([at.x - tagWidth / 2, minY]);
         // Dense views may only have space at the top or bottom of the stage.
         for (const x of [...sides, at.x - tagWidth / 2]) choices.push([x, minY], [x, maxY]);
         let box;

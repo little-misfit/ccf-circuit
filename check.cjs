@@ -43,14 +43,25 @@ if (process.argv.includes('--browser')) {
   const root = process.cwd();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'ccf-browser-'));
   // Capture the public adapter in the test document, without shipping a test hook.
-  const capture = () => Object.defineProperty(window, 'CCFGlobe', {
-    configurable: true,
-    set(Adapter) {
+  const capture = () => {
+    window.__qaContexts = new WeakMap();
+    const getContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+      const context = getContext.call(this, type, ...args);
+      if (context && ['webgl','webgl2','experimental-webgl'].includes(type) && !window.__qaContexts.has(this)) {
+        const record = {context, draws: 0}; window.__qaContexts.set(this, record);
+        for (const name of ['drawArrays','drawElements']) {
+          const draw = context[name]; context[name] = function(...args) { record.draws++; return draw.apply(this, args); };
+        }
+      }
+      return context;
+    };
+    Object.defineProperty(window, 'CCFGlobe', {configurable: true, set(Adapter) {
       Object.defineProperty(window, 'CCFGlobe', {value: class extends Adapter {
-        constructor(...args) { super(...args); window.__qaGlobe = this; }
+        constructor(...args) { super(...args); window.__qaGlobe = this; window.__qaOnSelect = args[1].onSelect; }
       }});
-    }
-  });
+    }});
+  };
   const probe = async () => {
     const get = id => document.getElementById(id);
     const verify = (test, message) => { if (!test) throw new Error(message); };
@@ -107,22 +118,24 @@ if (process.argv.includes('--browser')) {
       }
       change('rank', '');
       change('category', '');
-      const globe = window.__qaGlobe.globe;
-      verify(globe.renderer().getContext() instanceof WebGL2RenderingContext, 'Expected a real WebGL2 renderer');
-      await until(() => globe.globeMaterial().map?.image?.width > 0, 'Earth texture did not load');
-      verify(globe.pointsData().length > 0, 'No conference locations on the globe');
+      const adapter = window.__qaGlobe;
+      const globe = adapter.globe;
+      verify(typeof globe.update === 'function' && typeof globe.destroy === 'function', 'Expected the native COBE instance');
+      await until(() => window.__qaContexts.get(adapter.canvas)?.draws > 0, 'COBE did not render through WebGL');
+      verify(adapter.stage.dataset.renderer === 'cobe', 'Expected the COBE renderer');
+      verify(adapter.markers.length > 0, 'No conference locations on the globe');
       verify(get('year').options.length > 1, 'Missing season options');
       window.__qaGlobe.stopRotation();
-      const location = globe.pointsData().find(p => p.hot) || globe.pointsData()[0];
-      globe.onPointClick()(location);
+      const location = adapter.locations.find(p => p.hot) || adapter.locations[0];
+      window.__qaOnSelect(location.key);
       verify(!get('city-pop').hidden, 'City selection failed');
       get('city-pop').querySelector('[data-open]').click();
       verify(get('detail').open, 'City-to-detail failed');
       get('detail-close').click();
-      const before = globe.pointOfView().altitude;
+      const before = adapter.view.scale;
       get('zoom-in').click();
       await sleep(600);
-      verify(globe.pointOfView().altitude < before, 'Globe zoom did not change perspective');
+      verify(adapter.view.scale > before, 'Globe zoom did not change scale');
       get('map-reset').click();
       get('mode-meet').click();
       verify(get('agenda-label').textContent === 'Conference schedule', 'Conference date mode failed');
@@ -145,7 +158,7 @@ if (process.argv.includes('--browser')) {
       verify(document.querySelector('.event'), 'No deadline rows in an available year');
       change('search', 'no-such-conference-zzz');
       verify(get('clear-filter'), 'Empty search state failed');
-      verify(globe.pointsData().length === 0, 'Empty filter left stale globe locations');
+      verify(adapter.markers.length === 0, 'Empty filter left stale globe locations');
       get('clear-filter').click();
       verify(document.querySelector('.event'), 'Reset failed');
       document.body.dataset.smoke = 'passed';
@@ -172,7 +185,7 @@ if (process.argv.includes('--browser')) {
       await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
       const result = await new Promise((resolve, reject) => {
         child = spawn(process.env.CHROME_BIN || 'google-chrome', [
-          '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
+          '--headless=new', '--no-sandbox', '--disable-dev-shm-usage', '--force-prefers-reduced-motion',
           '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
           '--user-data-dir=' + profile, '--virtual-time-budget=18000', '--dump-dom',
           'http://127.0.0.1:' + server.address().port + '/'
@@ -186,7 +199,7 @@ if (process.argv.includes('--browser')) {
       });
       assert.equal(result.code, 0, result.stderr.slice(-2000));
       assert(result.stdout.includes('data-smoke="passed"'), result.stdout.match(/data-failure="([^"]*)"/)?.[1] || 'Browser did not complete checks: ' + result.stderr.slice(-1500));
-      console.log('Passed WebGL2 globe, texture, zoom, location details, filters, favorites and submission calendar checks.');
+      console.log('Passed native COBE rendering, zoom, location details, filters, favorites and submission calendar checks.');
     } finally {
       clearTimeout(timer);
       if (child && child.exitCode === null) child.kill('SIGKILL');

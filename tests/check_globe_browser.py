@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral QA for the geographic calendar using a real WebGL2 browser."""
+"""Behavioral QA for the geographic calendar using the actual browser renderer."""
 import argparse
 from datetime import datetime, timezone, timedelta
 import json
@@ -10,11 +10,24 @@ import re
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPTURE = """Object.defineProperty(window,'CCFGlobe',{configurable:true,set(Adapter){
+CAPTURE = """window.__qaContexts=new WeakMap();
+const getContext=HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext=function(type,...args){
+  const context=getContext.call(this,type,...args);
+  if(context && ['webgl','webgl2','experimental-webgl'].includes(type) && !__qaContexts.has(this)){
+    const record={context,draws:0}; __qaContexts.set(this,record);
+    for(const name of ['drawArrays','drawElements']){
+      const draw=context[name]; context[name]=function(...args){record.draws++;return draw.apply(this,args);};
+    }
+  }
+  return context;
+};
+Object.defineProperty(window,'CCFGlobe',{configurable:true,set(Adapter){
   Object.defineProperty(window,'CCFGlobe',{value:class extends Adapter{
-    constructor(...args){super(...args);window.__qaGlobe=this;}
+    constructor(...args){super(...args);window.__qaGlobe=this;window.__qaOnSelect=args[1].onSelect;}
   }});
 }});"""
+READY = "window.__qaGlobe?.available && __qaContexts.get(__qaGlobe.canvas)?.draws>0 && __qaGlobe.stage.dataset.renderer==='cobe'"
 
 
 def expected_nearest(events, year, now, rank='', category='', mode='meet', month=0):
@@ -51,7 +64,7 @@ def check_fse_branding(browser, url, check, errors, http_errors):
     page.on('response', lambda response: http_errors.append({'url':response.url,'status':response.status}) if response.status >= 400 else None)
     try:
         page.goto(url, wait_until='networkidle')
-        page.wait_for_function('window.__qaGlobe?.available && __qaGlobe.globe.globeMaterial().map?.image?.width>0')
+        page.wait_for_function(READY)
         page.evaluate('__qaGlobe.stopRotation()')
         page.locator('#mode-meet').click(); page.locator('#year').select_option('2027')
         page.locator('#rank').select_option(''); page.locator('#search').fill('FSE')
@@ -78,11 +91,122 @@ def check_fse_branding(browser, url, check, errors, http_errors):
         context.close()
 
 
+def check_mobile_controls(browser, url, check, errors, http_errors):
+    context = browser.new_context(viewport={'width':390,'height':844},device_scale_factor=2,is_mobile=True,has_touch=True)
+    context.add_init_script(CAPTURE)
+    page = context.new_page()
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.on('response', lambda response: http_errors.append({'url':response.url,'status':response.status}) if response.status >= 400 else None)
+    try:
+        page.goto(url,wait_until='networkidle');page.wait_for_function(READY)
+        page.evaluate('__qaGlobe.stopRotation()');page.locator('#globe').scroll_into_view_if_needed();page.wait_for_timeout(300)
+        size = page.evaluate("""() => {const g=__qaGlobe;return {width:g.width,height:g.height,bufferWidth:g.canvas.width,bufferHeight:g.canvas.height,dpr:devicePixelRatio};}""")
+        check('mobile DPR2 renders at the correct backing-buffer size', size['dpr']==2
+              and size['bufferWidth']==round(size['width']*2) and size['bufferHeight']==round(size['height']*2), size)
+        session = context.new_cdp_session(page)
+        def touch_targets():
+            return page.evaluate("""() => {
+              const canvas=__qaGlobe.canvas,b=canvas.getBoundingClientRect(),x=b.left+b.width/2;
+              for(const f of [.72,.62,.82]){const y=b.top+b.height*f;
+                if([-70,-40,40,70].every(dx=>document.elementFromPoint(x+dx,y)===canvas))return {x,y};}
+              throw new Error('No unobstructed canvas area for touch interaction');
+            }""")
+        at = touch_targets(); before = page.evaluate('__qaGlobe.view')
+        session.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':at['x']-40,'y':at['y'],'id':1}]})
+        session.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':at['x']+40,'y':at['y']-15,'id':1}]})
+        session.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+        after = page.evaluate('__qaGlobe.view')
+        check('actual mobile touch dragging rotates the globe', abs(after['phi']-before['phi'])>.05 or abs(after['theta']-before['theta'])>.05)
+        at = touch_targets(); before = page.evaluate('__qaGlobe.view.scale')
+        session.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':at['x']-40,'y':at['y'],'id':1},{'x':at['x']+40,'y':at['y'],'id':2}]})
+        session.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':at['x']-70,'y':at['y'],'id':1},{'x':at['x']+70,'y':at['y'],'id':2}]})
+        session.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+        check('actual mobile pinch zoom increases scale and releases pointers', page.evaluate('__qaGlobe.view.scale')>before*1.2 and page.evaluate('__qaGlobe.pointers.size===0'))
+        page.evaluate('__qaGlobe.focusNearest()');page.wait_for_timeout(1000)
+        projection = page.evaluate("""() => {
+          const g=__qaGlobe,b=g.stage.getBoundingClientRect(),vars=getComputedStyle(document.documentElement),native=g.nativeAnchors;
+          g.nativeAnchors=false;
+          const samples=g.locations.map(p=>{const a=g.labels.get(p.key).anchor.getBoundingClientRect(),at=g.projectLocation(p);
+            const visible=!!vars.getPropertyValue('--cobe-visible-'+p.markerId).trim();
+            return {name:p.name,error:Math.hypot(at.x-(a.left-b.left),at.y-(a.top-b.top)),visible,matches:at.visible===visible};});
+          g.nativeAnchors=native;return samples;
+        }""")
+        check('CSS-anchor fallback projection matches native front and rear markers', any(p['visible'] for p in projection)
+              and any(not p['visible'] for p in projection) and all(p['error']<2 and p['matches'] for p in projection), projection)
+    finally:
+        context.close()
+
+
+def check_static_resume(page, check):
+    page.evaluate('__qaGlobe.stopRotation()')
+    page.locator('#globe').scroll_into_view_if_needed();page.wait_for_timeout(1700)
+    page.locator('footer').scroll_into_view_if_needed()
+    page.wait_for_function('__qaGlobe.visible===false')
+    before = page.evaluate('({draws:__qaContexts.get(__qaGlobe.canvas).draws,view:{...__qaGlobe.view}})')
+    page.locator('#globe').scroll_into_view_if_needed();page.wait_for_timeout(350)
+    after = page.evaluate('({draws:__qaContexts.get(__qaGlobe.canvas).draws,view:{...__qaGlobe.view},visible:__qaGlobe.visible})')
+    check('reduced-motion globe repaints after returning onscreen without moving', after['visible']
+          and after['draws']>before['draws'] and after['view']==before['view'], {'before':before,'after':after})
+
+
+def check_gl_capabilities(browser, url, check, errors, http_errors):
+    """Exercise actual GL capability failures that COBE otherwise handles silently."""
+    force_webgl1 = "const previousContext=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){return type==='webgl2'?null:previousContext.call(this,type,...args)};"
+    invalid_shader = """window.__qaFaultHits=0;
+      for(const type of [WebGLRenderingContext,WebGL2RenderingContext]){
+        const originalSource=type.prototype.shaderSource;
+        type.prototype.shaderSource=function(shader,source){__qaFaultHits++;return originalSource.call(this,shader,'deliberately invalid GLSL');};
+      }"""
+    no_instancing = """window.__qaFaultHits=0;
+      const originalExtension=WebGLRenderingContext.prototype.getExtension;
+      WebGLRenderingContext.prototype.getExtension=function(name){
+        if(name==='ANGLE_instanced_arrays'){__qaFaultHits++;return null;}
+        return originalExtension.call(this,name);
+      };"""
+    for mode, injection in [('WebGL2',''),('WebGL1',force_webgl1),
+                            ('failed shader compilation',invalid_shader),
+                            ('WebGL1 without marker instancing',force_webgl1+no_instancing)]:
+        context=browser.new_context(viewport={'width':390,'height':844},reduced_motion='reduce')
+        context.add_init_script(CAPTURE)
+        if injection:
+            context.add_init_script(injection)
+        page=context.new_page()
+        page.on('pageerror',lambda error:errors.append(str(error)))
+        page.on('response',lambda response:http_errors.append({'url':response.url,'status':response.status}) if response.status>=400 else None)
+        try:
+            page.goto(url,wait_until='networkidle')
+            if mode in ['WebGL1','WebGL2']:
+                page.wait_for_function(READY)
+                state=page.evaluate("""() => {
+                  const g=__qaGlobe,record=__qaContexts.get(g.canvas),gl=record.context,program=gl.getParameter(gl.CURRENT_PROGRAM);
+                  return {version:gl instanceof WebGL2RenderingContext?'WebGL2':'WebGL1',draws:record.draws,
+                    markers:g.markers.length,linked:!!program && gl.getProgramParameter(program,gl.LINK_STATUS),
+                    instanced:!!gl.drawArraysInstanced || !!gl.getExtension('ANGLE_instanced_arrays'),error:gl.getError()};
+                }""")
+                check(f'native COBE renders with healthy {mode}',state['version']==mode and state['draws']>0
+                      and state['markers']>0 and state['linked'] and state['instanced'] and state['error']==0,state)
+            else:
+                page.wait_for_function("document.querySelector('#map-stage').dataset.renderer==='map'")
+                state=page.evaluate("""() => ({injected:__qaFaultHits>0,context:!!__qaContexts.get(__qaGlobe.canvas)?.context,
+                  available:__qaGlobe.available,renderer:__qaGlobe.stage.dataset.renderer})""")
+                map_ready=page.locator('#map').is_visible() and page.locator('#schedule .event').count()>0
+                if map_ready and page.locator('#markers [data-city]').count():
+                    page.locator('#markers [data-city]').first.click()
+                interactive=page.locator('#city-pop').is_visible()
+                page.locator('#search').fill('ICCV')
+                searchable=page.locator('#schedule [data-row="iccv27"]').count()==1
+                check(f'{mode} restores the interactive map and searchable schedule',state['injected']
+                      and state['context'] and not state['available'] and state['renderer']=='map'
+                      and map_ready and interactive and searchable,state)
+        finally:
+            context.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:8769/')
     parser.add_argument('--browser', default=os.environ.get('CHROME_BIN'))
-    parser.add_argument('--only', choices=['fse-branding'], help='Run one focused regression without the full globe suite.')
+    parser.add_argument('--only', choices=['fse-branding','mobile-controls','motion-resume','gl-capabilities'], help='Run one focused regression without the full globe suite.')
     args = parser.parse_args()
     report = {'checks': [], 'errors': [], 'httpErrors': []}
     output = ROOT / 'preview'
@@ -97,13 +221,13 @@ def main():
         check('no unexpected JavaScript errors', not report['errors'], report['errors'])
         check('all application assets loaded', not report['httpErrors'], report['httpErrors'])
         report['summary']={'passed':sum(c['pass'] for c in report['checks']),'total':len(report['checks'])}
-        report_name = 'globe-fse-report.json' if args.only else 'globe-browser-report.json'
+        report_name = {'fse-branding':'globe-fse-report.json','mobile-controls':'globe-mobile-report.json','motion-resume':'globe-resume-report.json','gl-capabilities':'globe-capabilities-report.json'}.get(args.only,'globe-browser-report.json')
         (output/report_name).write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
         print(json.dumps({'summary':report['summary'],'failures':[c for c in report['checks'] if not c['pass']]},ensure_ascii=False,indent=2))
         raise SystemExit(0 if all(c['pass'] for c in report['checks']) else 1)
 
     def ready(page):
-        page.wait_for_function("window.__qaGlobe?.available && window.__qaGlobe.globe.globeMaterial().map?.image?.width>0")
+        page.wait_for_function(READY)
         page.wait_for_function("document.querySelector('#schedule .event')")
         page.wait_for_timeout(1000)
 
@@ -134,8 +258,11 @@ def main():
 
     def marker_clearance(page, label):
         geometry = page.evaluate("""() => {
-          const g=__qaGlobe, globe=g.globe, camera=globe.camera(), radius=globe.getGlobeRadius();
-          const bounds=globe.renderer().domElement.getBoundingClientRect();
+          const g=__qaGlobe, bounds=g.canvas.getBoundingClientRect();
+          const offset=g.offset || [0,0],origin={x:bounds.left+bounds.width/2+offset[0]*g.view.scale/2,y:bounds.top+bounds.height/2+offset[1]*g.view.scale/2};
+          const variables=getComputedStyle(document.documentElement);
+          const anchors=new Map([...document.querySelectorAll('#globe [style*="anchor-name"]')]
+            .map(e=>[getComputedStyle(e).anchorName,e]));
           const cards=[...document.querySelectorAll('.globe-tag:not([hidden])')];
           const boxes=cards.flatMap(card=>{
             const r=card.getBoundingClientRect(), title=card.querySelector('.globe-tag-heading').textContent;
@@ -148,14 +275,18 @@ def main():
             }
             return result;
           });
+          const projectionErrors=[];
           const markers=g.locations.flatMap(point=>{
-            const v=globe.getCoords(point.lat,point.lng,0);
-            // Exclude the perspective horizon, where a tiny movement changes occlusion.
-            if(v.x*camera.position.x+v.y*camera.position.y+v.z*camera.position.z<=radius*radius*1.25)return [];
-            const setting=globe.pointAltitude(), altitude=typeof setting==='function'?setting(point):setting;
-            const p=globe.getScreenCoords(point.lat,point.lng,altitude);
-            if(p.x<16||p.x>bounds.width-16||p.y<16||p.y>bounds.height-16)return [];
-            return [{name:point.name,x:p.x+bounds.left,y:p.y+bounds.top,hot:point.hot}];
+            const native=anchors.get('--cobe-'+point.markerId);
+            if(!native || !variables.getPropertyValue('--cobe-visible-'+point.markerId).trim())return [];
+            const r=native.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;
+            // Stay inside the globe's rim; elevated rear markers can peek over the horizon.
+            if(Math.hypot(x-origin.x,y-origin.y)>g.globeRadius*.85)return [];
+            if(x<bounds.left+16||x>bounds.right-16||y<bounds.top+16||y>bounds.bottom-16)return [];
+            const projected=g.projectLocation(point);
+            if(!projected.visible || Math.hypot(projected.x+bounds.left-x,projected.y+bounds.top-y)>2)
+              projectionErrors.push(point.name);
+            return [{name:point.name,x,y,hot:point.hot}];
           });
           const violations=[];
           let minimum=Infinity;
@@ -165,9 +296,9 @@ def main():
             const required=marker.hot?12:4;
             if(distance<required-.5)violations.push({marker:marker.name,card:box.title,clearance:distance,required});
           }
-          return {markers:markers.length,cards:cards.length,minimumClearance:Number.isFinite(minimum)?minimum:null,violations};
+          return {markers:markers.length,cards:cards.length,minimumClearance:Number.isFinite(minimum)?minimum:null,violations,projectionErrors};
         }""")
-        check(label, geometry['markers'] > 0 and geometry['cards'] > 0 and not geometry['violations'], geometry)
+        check(label, geometry['markers'] > 0 and geometry['cards'] > 0 and not geometry['violations'] and not geometry['projectionErrors'], geometry)
 
     def nearest(page, label):
         snapshot = page.evaluate("({events:CCF_DATA.events,year:Number(document.querySelector('#year').value),now:Date.now(),rank:document.querySelector('#rank').value,category:document.querySelector('#category').value,mode:document.querySelector('#mode-deadline').getAttribute('aria-pressed')==='true'?'deadline':'meet',month:Number(document.querySelector('#months [aria-pressed=true]').dataset.month)})")
@@ -177,8 +308,8 @@ def main():
         expected = expected_nearest(**snapshot)
         actual = page.locator('.spot-name').get_attribute('data-open') if page.locator('.spot-name').count() else None
         marked = page.evaluate("__qaGlobe.locations.filter(p=>p.hot).map(p=>p.next?.id)")
-        rendered = page.evaluate("__qaGlobe.globe.pointsData().filter(p=>p.hot).map(p=>p.next?.id)")
-        rings = page.evaluate("__qaGlobe.globe.ringsData().map(p=>p.next?.id)")
+        rendered = page.evaluate("__qaGlobe.markers.flatMap(m=>__qaGlobe.locations.filter(p=>p.markerId===m.id && p.hot).map(p=>p.next?.id))")
+        rings = page.locator('.globe-ripple').evaluate_all("es=>es.filter(e=>!e.hidden || __qaGlobe.locations.find(p=>p.key===e.dataset.city)?.hot).map(e=>__qaGlobe.locations.find(p=>p.key===e.dataset.city)?.next?.id)")
         hot_labels = page.locator('.globe-tag.hot').evaluate_all('es=>es.map(e=>e.dataset.open)')
         has_location = bool([e for e in snapshot['events'] if e['id'] == expected and page.evaluate('(place)=>CCF_GEO.lookup(place).length', e.get('place') or '')])
         consistent = (bool(marked) and all(v == expected for v in marked)) if has_location else not marked
@@ -194,6 +325,23 @@ def main():
             check_fse_branding(browser, args.url, check, report['errors'], report['httpErrors'])
             browser.close()
             finish()
+        if args.only == 'mobile-controls':
+            check_mobile_controls(browser, args.url, check, report['errors'], report['httpErrors'])
+            browser.close()
+            finish()
+        if args.only == 'gl-capabilities':
+            check_gl_capabilities(browser,args.url,check,report['errors'],report['httpErrors'])
+            browser.close()
+            finish()
+        if args.only == 'motion-resume':
+            context=browser.new_context(viewport={'width':390,'height':844},reduced_motion='reduce')
+            context.add_init_script(CAPTURE)
+            page=context.new_page()
+            page.on('pageerror',lambda error:report['errors'].append(str(error)))
+            page.on('response',lambda response:report['httpErrors'].append({'url':response.url,'status':response.status}) if response.status>=400 else None)
+            page.goto(args.url,wait_until='networkidle');ready(page)
+            check_static_resume(page,check)
+            context.close();browser.close();finish()
         context = browser.new_context(viewport={'width': 1440, 'height': 1050})
         context.add_init_script(CAPTURE)
         page = context.new_page()
@@ -284,16 +432,25 @@ def main():
         check('non-nearest ACL retains its logo without the active card styling', inactive_acl and not inactive_acl['hot']
               and inactive_acl['surface'] == 'rgb(247, 249, 252)' and inactive_acl['ink'] == 'rgb(70, 85, 107)'
               and inactive_acl['logo'] == brand_cards[0]['source'], inactive_acl)
-        check('actual WebGL2 globe and locally loaded Earth texture', page.evaluate("__qaGlobe.globe.renderer().getContext() instanceof WebGL2RenderingContext && __qaGlobe.globe.globeMaterial().map.image.naturalWidth>=1024"))
-        check('conference locations are actual sphere meshes', page.evaluate("__qaGlobe.globe.pointsData().length>0 && __qaGlobe.globe.scene().children.length>0"))
+        check('native COBE renders through a real locally loaded WebGL module', page.evaluate("""() => {
+          const g=__qaGlobe,record=__qaContexts.get(g.canvas),context=record?.context;
+          return typeof g.globe.update==='function' && typeof g.globe.destroy==='function'
+            && record.draws>0 && context.getParameter(context.VERSION).startsWith('WebGL') && context.getError()===context.NO_ERROR
+            && performance.getEntriesByType('resource').some(r=>new URL(r.name).pathname.includes('/vendor/cobe/'));
+        }"""))
+        check('conference markers have native COBE geographic anchors', page.evaluate("""() => {
+          const g=__qaGlobe,names=new Set([...document.querySelectorAll('#globe [style*="anchor-name"]')].map(e=>getComputedStyle(e).anchorName));
+          return g.markers.length>0 && g.markers.length===g.locations.length
+            && g.markers.every(m=>Array.isArray(m.location) && m.location.length===2 && names.has('--cobe-'+m.id));
+        }"""))
         ripple = page.evaluate("""() => {
-          const g=__qaGlobe.globe, rings=g.ringsData(), value=(setting,p)=>typeof setting==='function'?setting(p):setting;
-          return {count:rings.length,onlyNearest:rings.every(p=>p.hot),
-            radius:rings.map(p=>value(g.ringMaxRadius(),p)),speed:rings.map(p=>value(g.ringPropagationSpeed(),p)),
-            period:rings.map(p=>value(g.ringRepeatPeriod(),p))};
+          const rings=[...document.querySelectorAll('.globe-ripple:not([hidden])')];
+          return {count:rings.length,onlyNearest:rings.every(e=>__qaGlobe.locations.find(p=>p.key===e.dataset.city)?.hot),
+            sizes:rings.map(e=>parseFloat(getComputedStyle(e,'::before').width)),
+            animations:rings.flatMap(e=>['::before','::after'].map(p=>{const s=getComputedStyle(e,p);return {name:s.animationName,duration:parseFloat(s.animationDuration),repeat:s.animationIterationCount};}))};
         }""")
         check('normal motion renders a larger repeating nearest-deadline ripple', ripple['count'] > 0 and ripple['onlyNearest']
-              and min(ripple['radius']) >= 8 and min(ripple['speed']) > 0 and min(ripple['period']) > 0, ripple)
+              and min(ripple['sizes']) >= 40 and all(a['name'] != 'none' and a['duration'] > 0 and a['repeat'] == 'infinite' for a in ripple['animations']), ripple)
         nearest(page, 'nearest future deadline is highlighted initially')
         timer = page.locator('.globe-tag.hot .globe-countdown').first
         previous = timer.text_content()
@@ -301,40 +458,40 @@ def main():
         check('floating deadline counts down in real time', timer.text_content() != previous)
         page.locator('#globe-motion').click()
         page.mouse.move(0, 0)
-        before = page.evaluate('__qaGlobe.globe.pointOfView().lng')
+        before = page.evaluate('__qaGlobe.view.phi')
         page.wait_for_timeout(700)
-        after = page.evaluate('__qaGlobe.globe.pointOfView().lng')
-        check('play button resumes rotation after the pointer leaves', abs(after - before) > .01 and page.evaluate('__qaGlobe.playing'))
+        after = page.evaluate('__qaGlobe.view.phi')
+        check('play button resumes rotation after the pointer leaves', abs(after - before) > .001 and page.evaluate('__qaGlobe.playing'))
         pause(page)
 
         # User input must change the camera, not only a decorative CSS transform.
         bounds = page.locator('#globe canvas').bounding_box()
-        before = page.evaluate('__qaGlobe.globe.pointOfView()')
+        before = page.evaluate('__qaGlobe.view')
         x, y = bounds['x'] + bounds['width'] * .48, bounds['y'] + bounds['height'] * .65
         page.mouse.move(x, y); page.mouse.down(); page.mouse.move(x + 120, y + 35, steps=12); page.mouse.up()
         page.wait_for_timeout(600)
-        after = page.evaluate('__qaGlobe.globe.pointOfView()')
-        check('dragging rotates the 3D geographic camera', abs(after['lng'] - before['lng']) > 5, {'before': before, 'after': after})
+        after = page.evaluate('__qaGlobe.view')
+        check('dragging rotates the geographic view', abs(after['phi'] - before['phi']) > .05 or abs(after['theta'] - before['theta']) > .05, {'before': before, 'after': after})
         marker_clearance(page, 'dragging keeps projected markers clear of floating cards')
         before = after
         page.locator('#zoom-in').click(); page.wait_for_timeout(500)
-        after = page.evaluate('__qaGlobe.globe.pointOfView()')
-        check('zoom control changes the camera altitude', after['altitude'] < before['altitude'])
-        page.locator('#globe').focus(); before = page.evaluate('__qaGlobe.globe.pointOfView()')
+        after = page.evaluate('__qaGlobe.view')
+        check('zoom control increases the globe scale', after['scale'] > before['scale'])
+        page.locator('#globe').focus(); before = page.evaluate('__qaGlobe.view')
         page.keyboard.press('ArrowRight'); page.wait_for_timeout(400)
-        after = page.evaluate('__qaGlobe.globe.pointOfView()')
-        check('keyboard arrows rotate the globe', abs(after['lng'] - before['lng']) > 5)
+        after = page.evaluate('__qaGlobe.view')
+        check('keyboard arrows rotate the globe', abs(after['phi'] - before['phi']) > .05)
         page.locator('#focus-deadline').click(); page.wait_for_timeout(1000)
         check('focus-nearest returns the selected deadline to the visible hemisphere', page.locator('.globe-tag.hot:not([hidden])').count() > 0)
         backside = page.evaluate("""() => {
-          const g=__qaGlobe, c=g.globe.camera().position;
-          const back=g.locations.filter(p=>{const v=g.globe.getCoords(p.lat,p.lng);return v.x*c.x+v.y*c.y+v.z*c.z<0;});
+          const g=__qaGlobe,variables=getComputedStyle(document.documentElement);
+          const back=g.locations.filter(p=>!variables.getPropertyValue('--cobe-visible-'+p.markerId).trim());
           return {count:back.length,hidden:back.every(p=>g.labels.get(p.key).button.hidden)};
         }""")
         check('far-side deadline cards are hidden by the Earth', backside['count'] > 0 and backside['hidden'], backside)
 
         # Real click on the highlighted surface marker opens its city collection.
-        coordinates = page.evaluate("""() => {const g=__qaGlobe,p=g.locations.find(p=>p.hot);return g.globe.getScreenCoords(p.lat,p.lng,.035)}""")
+        coordinates = page.evaluate("""() => {const g=__qaGlobe,p=g.locations.find(p=>p.hot);return g.projectLocation(p)}""")
         bounds = page.locator('#globe canvas').bounding_box()
         page.mouse.click(bounds['x'] + coordinates['x'], bounds['y'] + coordinates['y'])
         page.wait_for_timeout(250)
@@ -392,8 +549,7 @@ def main():
             check(f'{width}px: no page overflow or overlapping floating cards', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and not overlap and fits, boxes)
             compact = stage['width'] < 600
             footprint = page.evaluate("""() => {
-              const g=__qaGlobe.globe,c=g.camera(),r=g.getGlobeRadius(),height=g.renderer().domElement.getBoundingClientRect().height;
-              const diameter=height/Math.tan(c.fov*Math.PI/360)*r/Math.sqrt(c.position.lengthSq()-r*r);
+              const diameter=__qaGlobe.globeRadius*2;
               return {diameter,boxes:[...document.querySelectorAll('.globe-tag:not([hidden])')].map(e=>({width:e.offsetWidth,height:e.offsetHeight}))};
             }""")
             check(f'{width}px: cards have a smaller footprint relative to Earth', bool(footprint['boxes'])
@@ -412,13 +568,13 @@ def main():
             page.keyboard.press('Escape')
             page.locator('#globe').scroll_into_view_if_needed()
             for longitude in [-100, 30]:
-                page.evaluate('(lng)=>__qaGlobe.globe.pointOfView({lat:20,lng},0)', longitude)
+                page.evaluate('(angle)=>__qaGlobe.setView({phi:angle*Math.PI/180,theta:.35},false)', longitude)
                 page.wait_for_timeout(200)
                 marker_clearance(page, f'{width}px: markers stay clear after rotating to {longitude} degrees')
         page.locator('#search').fill('no-conference-has-this-name')
         check('320px: empty search state fits without page overflow', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and page.locator('#clear-filter').is_visible())
         page.locator('#clear-filter').click()
-        page.evaluate('__qaGlobe.globe.renderer().forceContextLoss()')
+        page.evaluate("__qaContexts.get(__qaGlobe.canvas).context.getExtension('WEBGL_lose_context').loseContext()")
         page.wait_for_function("document.querySelector('#map-stage').dataset.renderer==='map'")
         check('WebGL context loss restores usable map markers', page.locator('#map').is_visible() and page.locator('#markers [data-city]').count() > 0)
         context.close()
@@ -436,10 +592,13 @@ def main():
         context = browser.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
         context.add_init_script(CAPTURE); page=context.new_page(); page.goto(args.url); ready(page)
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
-        before=page.evaluate('__qaGlobe.globe.pointOfView()'); page.wait_for_timeout(700)
-        after=page.evaluate('__qaGlobe.globe.pointOfView()')
-        check('reduced motion starts without rotation or repeating rings', abs(before['lng']-after['lng']) < .01 and page.evaluate('__qaGlobe.globe.ringsData().length===0'))
+        before=page.evaluate('__qaGlobe.view'); page.wait_for_timeout(700)
+        after=page.evaluate('__qaGlobe.view')
+        check('reduced motion starts without rotation or repeating rings', abs(before['phi']-after['phi']) < .0001 and page.evaluate("[...document.querySelectorAll('.globe-ripple:not([hidden])')].every(e=>['::before','::after'].every(p=>getComputedStyle(e,p).animationName==='none' || parseFloat(getComputedStyle(e,p).animationDuration)===0))"))
+        check_static_resume(page,check)
         context.close()
+
+        check_gl_capabilities(browser,args.url,check,report['errors'],report['httpErrors'])
 
         context = browser.new_context(viewport={'width': 390, 'height': 844})
         context.add_init_script("const original=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(type,...args){if(type.includes('webgl'))return null;return original.call(this,type,...args)}")
@@ -450,6 +609,14 @@ def main():
             page.locator('#markers [data-city]').first.click()
         check('fallback map markers still open city conferences', page.locator('#city-pop').is_visible())
         english_ui(page, 'fallback city popup uses English')
+        context.close()
+
+        context = browser.new_context(viewport={'width':390,'height':844})
+        context.route(re.compile(r'/vendor/cobe/[^?]+\.js(?:\?.*)?$'), lambda route: route.abort())
+        page=context.new_page();page.goto(args.url,wait_until='networkidle')
+        page.locator('#search').fill('ICCV')
+        check('a failed COBE module preserves the searchable schedule and map', page.locator('#map').is_visible()
+              and page.locator('#schedule [data-row="iccv27"]').count()==1 and not page.locator('#boot-error').is_visible())
         context.close()
 
         # Small deterministic dataset validates deadline rollover and missing places.
@@ -485,7 +652,7 @@ def main():
         later = datetime.fromisoformat(page.evaluate("CCF_DATA.events[0].deadlines[1].at").replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=8)))
         page.locator('#year').select_option(str(later.year))
         page.locator(f'#months [data-month="{later.month}"]').click()
-        page.evaluate('__qaGlobe.globe.onPointClick()(__qaGlobe.locations[0])')
+        page.evaluate('__qaOnSelect(__qaGlobe.locations[0].key)')
         check('city popup uses the deadline in the selected submission month', 'Paper deadline' in page.locator('#city-pop').text_content() and 'Abstract deadline' not in page.locator('#city-pop').text_content())
         page.locator('#mode-meet').click(); page.locator('#year').select_option('2027'); page.locator('#months [data-month="0"]').click()
         page.evaluate('window.__clockOffset=180000');page.wait_for_timeout(1400)
@@ -536,6 +703,7 @@ def main():
               page.locator('#schedule .event').count() == 1 and page.locator('#schedule [data-row="other"]').count() == 1
               and page.locator('.spot-name').count() == 0 and page.evaluate('__qaGlobe.locations.every(p=>!p.next && !p.hot)'))
         context.close()
+        check_mobile_controls(browser, args.url, check, report['errors'], report['httpErrors'])
         check_fse_branding(browser, args.url, check, report['errors'], report['httpErrors'])
         browser.close()
 

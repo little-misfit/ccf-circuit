@@ -1,0 +1,21 @@
+{
+  "name": "cobe",
+  "version": "2.0.1",
+  "retrieved": "2026-11-23",
+  "upstream": "https://github.com/shuding/cobe",
+  "commit": "4fc247f673fbec28d5ae6d4798757e2bca83ed3b",
+  "tarball": "https://registry.npmjs.org/cobe/-/cobe-2.0.1.tgz",
+  "tarball_integrity": "sha512-aaa6vcIlaC8C1SF50LDH0Anybo/EAXnrxqe+bwvr4+YUtZydqjeBjTTD7ziCCkbRrRGSns3I3F6cZsf3W+L+ag==",
+  "bundle_sha256": "b4706c2a8772c5983f0872e02bbb707e551e093b32ad7c01d61dd661765097ee",
+  "bundle_bytes": 12937,
+  "modified": false,
+  "runtime_dependencies": [],
+  "texture_attribution": {
+    "title": "World map blank without borders",
+    "author": "Crates",
+    "source": "https://commons.wikimedia.org/wiki/File:World_map_blank_without_borders.svg",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "changes": "Raster land mask provided by COBE; retained unchanged in this vendored bundle."
+  }
+}
