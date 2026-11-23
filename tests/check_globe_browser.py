@@ -41,10 +41,48 @@ def expected_nearest(events, year, now, rank='', category='', mode='meet', month
     return sorted(candidates)[0][2] if candidates else None
 
 
+def check_fse_branding(browser, url, check, errors, http_errors):
+    """Render both FSE editions while their deadlines are still upcoming."""
+    context = browser.new_context(viewport={'width':1440,'height':1050})
+    context.add_init_script(CAPTURE)
+    context.add_init_script("const realNow=Date.now,start=realNow(),baseline=Date.parse('2026-06-01T00:00:00Z');Date.now=()=>baseline+realNow()-start;")
+    page = context.new_page()
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.on('response', lambda response: http_errors.append({'url':response.url,'status':response.status}) if response.status >= 400 else None)
+    try:
+        page.goto(url, wait_until='networkidle')
+        page.wait_for_function('window.__qaGlobe?.available && __qaGlobe.globe.globeMaterial().map?.image?.width>0')
+        page.evaluate('__qaGlobe.stopRotation()')
+        page.locator('#mode-meet').click(); page.locator('#year').select_option('2027')
+        page.locator('#rank').select_option(''); page.locator('#search').fill('FSE')
+        for category, event_id in [('SC','iacr-fse27'),('SE','fse27')]:
+            page.locator('#category').select_option(category)
+            page.locator('#globe').scroll_into_view_if_needed(); page.wait_for_timeout(1100)
+            card = page.locator(f'.globe-tag[data-open="{event_id}"]')
+            card.wait_for(state='visible')
+            state = card.evaluate("""card => {
+              const logo=card.querySelector('.globe-tag-logo'), monogram=card.querySelector('.globe-tag-monogram');
+              return {source:logo.currentSrc || logo.getAttribute('src'),loaded:logo.complete && logo.naturalWidth>0,
+                imageHidden:logo.hidden,monogram:monogram.textContent,monogramVisible:!monogram.hidden,
+                expected:new URL(CCF_BRANDS['ID:IACR-FSE27'].logo,document.baseURI).href};
+            }""")
+            selected = page.locator('.spot-name').get_attribute('data-open') == event_id
+            if category == 'SC':
+                check('Fast Software Encryption uses its event-specific official logo', selected and state['loaded']
+                      and not state['imageHidden'] and state['source'] == state['expected'], state)
+            else:
+                check('ACM Foundations of Software Engineering does not inherit the encryption logo', selected
+                      and state['imageHidden'] and state['monogramVisible'] and state['monogram'] == 'FSE'
+                      and state['source'] != state['expected'], state)
+    finally:
+        context.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--url', default='http://127.0.0.1:8769/')
     parser.add_argument('--browser', default=os.environ.get('CHROME_BIN'))
+    parser.add_argument('--only', choices=['fse-branding'], help='Run one focused regression without the full globe suite.')
     args = parser.parse_args()
     report = {'checks': [], 'errors': [], 'httpErrors': []}
     output = ROOT / 'preview'
@@ -54,6 +92,15 @@ def main():
         report['checks'].append({'name': name, 'pass': bool(passed), 'details': details})
         if not passed:
             print('FAIL:', name, details, flush=True)
+
+    def finish():
+        check('no unexpected JavaScript errors', not report['errors'], report['errors'])
+        check('all application assets loaded', not report['httpErrors'], report['httpErrors'])
+        report['summary']={'passed':sum(c['pass'] for c in report['checks']),'total':len(report['checks'])}
+        report_name = 'globe-fse-report.json' if args.only else 'globe-browser-report.json'
+        (output/report_name).write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+        print(json.dumps({'summary':report['summary'],'failures':[c for c in report['checks'] if not c['pass']]},ensure_ascii=False,indent=2))
+        raise SystemExit(0 if all(c['pass'] for c in report['checks']) else 1)
 
     def ready(page):
         page.wait_for_function("window.__qaGlobe?.available && window.__qaGlobe.globe.globeMaterial().map?.image?.width>0")
@@ -85,6 +132,43 @@ def main():
             && r.bottom <= innerHeight + 1 && e.scrollWidth <= e.clientWidth + 1;
         }""")
 
+    def marker_clearance(page, label):
+        geometry = page.evaluate("""() => {
+          const g=__qaGlobe, globe=g.globe, camera=globe.camera(), radius=globe.getGlobeRadius();
+          const bounds=globe.renderer().domElement.getBoundingClientRect();
+          const cards=[...document.querySelectorAll('.globe-tag:not([hidden])')];
+          const boxes=cards.flatMap(card=>{
+            const r=card.getBoundingClientRect(), title=card.querySelector('.globe-tag-heading').textContent;
+            const result=[{left:r.left,right:r.right,top:r.top,bottom:r.bottom,title}];
+            const caption=getComputedStyle(card,'::before');
+            if(caption.content!=='none' && caption.content!=='normal'){
+              const left=r.left+(parseFloat(caption.left)||0),top=r.top+(parseFloat(caption.top)||0);
+              result.push({left,top,right:left+(parseFloat(caption.width)||r.width),
+                bottom:top+(parseFloat(caption.height)||parseFloat(caption.fontSize)*1.3),title:title+' caption'});
+            }
+            return result;
+          });
+          const markers=g.locations.flatMap(point=>{
+            const v=globe.getCoords(point.lat,point.lng,0);
+            // Exclude the perspective horizon, where a tiny movement changes occlusion.
+            if(v.x*camera.position.x+v.y*camera.position.y+v.z*camera.position.z<=radius*radius*1.25)return [];
+            const setting=globe.pointAltitude(), altitude=typeof setting==='function'?setting(point):setting;
+            const p=globe.getScreenCoords(point.lat,point.lng,altitude);
+            if(p.x<16||p.x>bounds.width-16||p.y<16||p.y>bounds.height-16)return [];
+            return [{name:point.name,x:p.x+bounds.left,y:p.y+bounds.top,hot:point.hot}];
+          });
+          const violations=[];
+          let minimum=Infinity;
+          for(const marker of markers)for(const box of boxes){
+            const distance=Math.hypot(Math.max(box.left-marker.x,0,marker.x-box.right),Math.max(box.top-marker.y,0,marker.y-box.bottom));
+            minimum=Math.min(minimum,distance);
+            const required=marker.hot?12:4;
+            if(distance<required-.5)violations.push({marker:marker.name,card:box.title,clearance:distance,required});
+          }
+          return {markers:markers.length,cards:cards.length,minimumClearance:Number.isFinite(minimum)?minimum:null,violations};
+        }""")
+        check(label, geometry['markers'] > 0 and geometry['cards'] > 0 and not geometry['violations'], geometry)
+
     def nearest(page, label):
         snapshot = page.evaluate("({events:CCF_DATA.events,year:Number(document.querySelector('#year').value),now:Date.now(),rank:document.querySelector('#rank').value,category:document.querySelector('#category').value,mode:document.querySelector('#mode-deadline').getAttribute('aria-pressed')==='true'?'deadline':'meet',month:Number(document.querySelector('#months [aria-pressed=true]').dataset.month)})")
         if page.locator('#nav-fav').get_attribute('aria-pressed') == 'true':
@@ -93,14 +177,23 @@ def main():
         expected = expected_nearest(**snapshot)
         actual = page.locator('.spot-name').get_attribute('data-open') if page.locator('.spot-name').count() else None
         marked = page.evaluate("__qaGlobe.locations.filter(p=>p.hot).map(p=>p.next?.id)")
+        rendered = page.evaluate("__qaGlobe.globe.pointsData().filter(p=>p.hot).map(p=>p.next?.id)")
+        rings = page.evaluate("__qaGlobe.globe.ringsData().map(p=>p.next?.id)")
+        hot_labels = page.locator('.globe-tag.hot').evaluate_all('es=>es.map(e=>e.dataset.open)')
         has_location = bool([e for e in snapshot['events'] if e['id'] == expected and page.evaluate('(place)=>CCF_GEO.lookup(place).length', e.get('place') or '')])
-        check(label, actual == expected and (not has_location or bool(marked) and all(v == expected for v in marked)), {'expected': expected, 'actual': actual, 'marked': marked})
+        consistent = (bool(marked) and all(v == expected for v in marked)) if has_location else not marked
+        check(label, actual == expected and consistent and all(sorted(ids, key=str) == sorted(marked, key=str) for ids in [rendered,rings,hot_labels]),
+              {'expected': expected, 'actual': actual, 'marked': marked, 'rendered': rendered, 'rings': rings, 'hotLabels': hot_labels})
 
     with sync_playwright() as pw:
         options = {'args': ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']}
         if args.browser:
             options['executable_path'] = args.browser
         browser = pw.chromium.launch(**options)
+        if args.only == 'fse-branding':
+            check_fse_branding(browser, args.url, check, report['errors'], report['httpErrors'])
+            browser.close()
+            finish()
         context = browser.new_context(viewport={'width': 1440, 'height': 1050})
         context.add_init_script(CAPTURE)
         page = context.new_page()
@@ -119,6 +212,17 @@ def main():
         check('initial submission year contains the next AI CCF A deadline', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
               and page.locator('#year').input_value() == str(default_year))
         check('initial filters are CCF A and Artificial Intelligence', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == 'AI')
+        logo_assets = page.evaluate("""async () => {
+          const sources=[...new Set(Object.values(CCF_BRANDS).map(brand=>brand.logo))];
+          const results=await Promise.all(sources.map(source=>new Promise(resolve=>{
+            const image=new Image(),timer=setTimeout(()=>resolve({source,loaded:false}),5000);
+            const done=loaded=>{clearTimeout(timer);resolve({source,loaded});};
+            image.onload=()=>done(image.naturalWidth>0 && image.naturalHeight>0 && new URL(image.src).origin===location.origin);
+            image.onerror=()=>done(false); image.src=source;
+          })));
+          return {count:results.length,failed:results.filter(result=>!result.loaded).map(result=>result.source)};
+        }""")
+        check('all registered conference logos decode from local files', logo_assets['count'] > 0 and not logo_assets['failed'], logo_assets)
         nearest(page, 'nearest future deadline respects the initial AI and CCF A filters')
         iccv = page.locator('#schedule [data-row="iccv27"]')
         check('ICCV 2027 remains listed when its submission date is unknown', iccv.count() == 1 and 'Deadline TBA' in iccv.text_content())
@@ -170,8 +274,26 @@ def main():
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
         page.wait_for_timeout(1000)
         pause(page)
+        inactive_acl = page.locator('.globe-tag').evaluate_all("""cards => {
+          const card=cards.find(e=>e.querySelector('.globe-tag-heading').textContent.startsWith('ACL '));
+          if(!card)return null;
+          return {hot:card.classList.contains('hot'),surface:getComputedStyle(card).backgroundColor,
+            ink:getComputedStyle(card.querySelector('.globe-countdown')).color,
+            logo:card.querySelector('.globe-tag-logo').currentSrc};
+        }""")
+        check('non-nearest ACL retains its logo without the active card styling', inactive_acl and not inactive_acl['hot']
+              and inactive_acl['surface'] == 'rgb(247, 249, 252)' and inactive_acl['ink'] == 'rgb(70, 85, 107)'
+              and inactive_acl['logo'] == brand_cards[0]['source'], inactive_acl)
         check('actual WebGL2 globe and locally loaded Earth texture', page.evaluate("__qaGlobe.globe.renderer().getContext() instanceof WebGL2RenderingContext && __qaGlobe.globe.globeMaterial().map.image.naturalWidth>=1024"))
         check('conference locations are actual sphere meshes', page.evaluate("__qaGlobe.globe.pointsData().length>0 && __qaGlobe.globe.scene().children.length>0"))
+        ripple = page.evaluate("""() => {
+          const g=__qaGlobe.globe, rings=g.ringsData(), value=(setting,p)=>typeof setting==='function'?setting(p):setting;
+          return {count:rings.length,onlyNearest:rings.every(p=>p.hot),
+            radius:rings.map(p=>value(g.ringMaxRadius(),p)),speed:rings.map(p=>value(g.ringPropagationSpeed(),p)),
+            period:rings.map(p=>value(g.ringRepeatPeriod(),p))};
+        }""")
+        check('normal motion renders a larger repeating nearest-deadline ripple', ripple['count'] > 0 and ripple['onlyNearest']
+              and min(ripple['radius']) >= 8 and min(ripple['speed']) > 0 and min(ripple['period']) > 0, ripple)
         nearest(page, 'nearest future deadline is highlighted initially')
         timer = page.locator('.globe-tag.hot .globe-countdown').first
         previous = timer.text_content()
@@ -193,6 +315,7 @@ def main():
         page.wait_for_timeout(600)
         after = page.evaluate('__qaGlobe.globe.pointOfView()')
         check('dragging rotates the 3D geographic camera', abs(after['lng'] - before['lng']) > 5, {'before': before, 'after': after})
+        marker_clearance(page, 'dragging keeps projected markers clear of floating cards')
         before = after
         page.locator('#zoom-in').click(); page.wait_for_timeout(500)
         after = page.evaluate('__qaGlobe.globe.pointOfView()')
@@ -231,6 +354,13 @@ def main():
         nearest(page, 'nearest highlight follows CCF rank filter')
         page.locator('#category').select_option('AI'); page.wait_for_timeout(1000)
         nearest(page, 'nearest highlight follows subject filter')
+        for category in page.locator('#category option').evaluate_all("es=>es.map(e=>e.value).filter(Boolean)"):
+            page.locator('#category').select_option(category)
+            nearest(page, f'{category}: category changes replace the spotlight, highlighted points and rings')
+        page.locator('#category').select_option('AI')
+        for rank in ['B', 'C', 'A']:
+            page.locator('#rank').select_option(rank)
+            nearest(page, f'AI rank {rank}: no previous-category highlight survives')
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
         page.locator('#mode-meet').click()
         page.locator('#year').select_option('2026'); page.wait_for_timeout(1000)
@@ -253,12 +383,23 @@ def main():
 
         for width in [1440, 768, 390, 320]:
             page.set_viewport_size({'width': width, 'height': 1050 if width > 760 else 844})
-            page.locator('#focus-deadline').click(); page.wait_for_timeout(1200)
+            page.locator('#focus-deadline').click()
+            page.locator('#globe').scroll_into_view_if_needed(); page.wait_for_timeout(1200)
             boxes = page.locator('.globe-tag:not([hidden])').evaluate_all("es=>es.map(e=>{const r=e.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom}})")
             overlap = any(a['left'] < b['right'] and a['right'] > b['left'] and a['top'] < b['bottom'] and a['bottom'] > b['top'] for i, a in enumerate(boxes) for b in boxes[i+1:])
             stage = page.locator('#map-stage').bounding_box()
             fits = all(b['left'] >= stage['x'] - 1 and b['right'] <= stage['x'] + stage['width'] + 1 and b['top'] >= stage['y'] - 1 and b['bottom'] <= stage['y'] + stage['height'] + 1 for b in boxes)
             check(f'{width}px: no page overflow or overlapping floating cards', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and not overlap and fits, boxes)
+            compact = stage['width'] < 600
+            footprint = page.evaluate("""() => {
+              const g=__qaGlobe.globe,c=g.camera(),r=g.getGlobeRadius(),height=g.renderer().domElement.getBoundingClientRect().height;
+              const diameter=height/Math.tan(c.fov*Math.PI/360)*r/Math.sqrt(c.position.lengthSq()-r*r);
+              return {diameter,boxes:[...document.querySelectorAll('.globe-tag:not([hidden])')].map(e=>({width:e.offsetWidth,height:e.offsetHeight}))};
+            }""")
+            check(f'{width}px: cards have a smaller footprint relative to Earth', bool(footprint['boxes'])
+                  and all(b['width'] <= (178 if compact else 196) + 1 and b['height'] <= (84 if compact else 100) + 1
+                          and b['width'] / footprint['diameter'] < .72 for b in footprint['boxes']), footprint)
+            marker_clearance(page, f'{width}px: visible projected markers retain clearance from cards')
             check(f'{width}px: nearest deadline remains visible and readable', page.locator('.globe-tag.hot:not([hidden])').count() > 0)
             check(f'{width}px: English labels fit their cards', page.locator('.globe-tag:not([hidden])').evaluate_all('es=>es.every(e=>e.scrollWidth<=e.clientWidth+1)'))
             timer_sizes = page.locator('.globe-tag.has-deadline:not([hidden]) .globe-countdown').evaluate_all('es=>es.map(e=>parseFloat(getComputedStyle(e).fontSize))')
@@ -269,6 +410,11 @@ def main():
             page.locator('.spot-name').click()
             check(f'{width}px: detail dialog fits the viewport', fits_viewport(page, '#detail'))
             page.keyboard.press('Escape')
+            page.locator('#globe').scroll_into_view_if_needed()
+            for longitude in [-100, 30]:
+                page.evaluate('(lng)=>__qaGlobe.globe.pointOfView({lat:20,lng},0)', longitude)
+                page.wait_for_timeout(200)
+                marker_clearance(page, f'{width}px: markers stay clear after rotating to {longitude} degrees')
         page.locator('#search').fill('no-conference-has-this-name')
         check('320px: empty search state fits without page overflow', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and page.locator('#clear-filter').is_visible())
         page.locator('#clear-filter').click()
@@ -389,14 +535,11 @@ def main():
         check('a year with only unpublished deadlines remains selectable without a fake countdown',
               page.locator('#schedule .event').count() == 1 and page.locator('#schedule [data-row="other"]').count() == 1
               and page.locator('.spot-name').count() == 0 and page.evaluate('__qaGlobe.locations.every(p=>!p.next && !p.hot)'))
-        context.close(); browser.close()
+        context.close()
+        check_fse_branding(browser, args.url, check, report['errors'], report['httpErrors'])
+        browser.close()
 
-    check('no unexpected JavaScript errors', not report['errors'], report['errors'])
-    check('all application assets loaded', not report['httpErrors'], report['httpErrors'])
-    report['summary']={'passed':sum(c['pass'] for c in report['checks']),'total':len(report['checks'])}
-    (output/'globe-browser-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
-    print(json.dumps({'summary':report['summary'],'failures':[c for c in report['checks'] if not c['pass']]},ensure_ascii=False,indent=2))
-    raise SystemExit(0 if all(c['pass'] for c in report['checks']) else 1)
+    finish()
 
 
 if __name__=='__main__':

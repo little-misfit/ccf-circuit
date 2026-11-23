@@ -81,7 +81,7 @@ if (process.argv.includes('--browser')) {
       if (hot) {
         const next = window.__qaGlobe.locations.find(point => point.hot)?.next;
         const title = next?.title.toUpperCase();
-        const brand = window.CCF_BRANDS[`${title}:${next?.year}`] || window.CCF_BRANDS[title];
+        const brand = window.CCF_BRANDS[`ID:${next?.id.toUpperCase()}`] || window.CCF_BRANDS[`${title}:${next?.year}`] || window.CCF_BRANDS[title];
         if (brand?.logo) {
           const logo = hot.querySelector('.globe-tag-logo');
           verify(logo && logo.src === new URL(brand.logo, document.baseURI).href, 'Expected the registered conference logo');
@@ -156,7 +156,7 @@ if (process.argv.includes('--browser')) {
   };
   const testHtml = html.replace('<head>', '<head><script>(' + capture.toString() + ')()</script>')
     .replace('</body>', '<script>(' + probe.toString() + ')()</script></body>');
-  const mime = {'.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.jpg':'image/jpeg', '.woff2':'font/woff2'};
+  const mime = {'.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.png':'image/png', '.webp':'image/webp', '.woff2':'font/woff2'};
   const server = http.createServer((req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     if (pathname === '/' || pathname === '/index.html') { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(testHtml); return; }

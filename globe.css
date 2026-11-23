@@ -33,33 +33,34 @@
 .globe-connectors path { fill: none; stroke: #adc2e0; stroke-width: 1; opacity: .45; }
 .globe-connectors path.hot { stroke: #dda5ad; opacity: .9; }
 .globe-tag {
-  position: absolute; top: 0; left: 0; width: 240px; height: 126px; padding: 13px;
-  border: 1px solid var(--tag-border, #c7d2e3); border-left: 3px solid var(--tag-edge, #526d90);
-  border-radius: 12px; text-align: left; color: #2d394b;
-  background: var(--tag-surface, #fafbfc); box-shadow: 0 8px 22px #15233b36;
-  pointer-events: auto; display: flex; flex-direction: column; justify-content: space-between; gap: 9px;
+  position: absolute; top: 0; left: 0; width: 196px; height: 100px; padding: 10px;
+  border: 1px solid #c7d2e3; border-left: 3px solid var(--tag-edge, #526d90);
+  border-radius: 10px; text-align: left; color: #2d394b;
+  background: #f7f9fc; box-shadow: 0 8px 22px #15233b36;
+  pointer-events: auto; display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
 }
 .globe-tag:hover, .globe-tag:focus-visible { border-color: var(--tag-edge); filter: none; }
-.globe-tag.hot { border-color: var(--tag-edge); box-shadow: 0 0 0 1px var(--tag-border), 0 8px 25px #15233b50; }
-.globe-tag-header { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.globe-tag-logo-frame { display: grid; place-items: center; width: 42px; height: 42px; flex: none; background: var(--tag-logo-background, #fff); border-radius: 8px; border: 1px solid var(--tag-border); padding: 4px; }
+.globe-tag.hot { border-color: var(--tag-edge); background: var(--tag-surface, #fafbfc); box-shadow: 0 0 0 1px var(--tag-border), 0 8px 25px #15233b50; }
+.globe-tag-header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.globe-tag-logo-frame { display: grid; place-items: center; width: 32px; height: 32px; flex: none; background: var(--tag-logo-background, #fff); border-radius: 6px; border: 1px solid #d5dde8; padding: 3px; }
 .globe-tag-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
 .globe-tag-logo-frame:has(.globe-tag-logo[hidden]) { background: #fff; }
-.globe-tag-monogram { font: 700 10px/1 var(--sans); letter-spacing: -.03em; color: var(--tag-ink); }
-.globe-tag-identity { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.compact-globe .globe-tag { width: 212px; height: 118px; padding: 11px; }
-.compact-globe .globe-tag-logo-frame { width: 36px; height: 36px; }
-.compact-globe .globe-tag-heading { font-size: 14px; }
-.compact-globe .globe-tag-location { font-size: 12px; }
-.compact-globe .globe-countdown { font-size: 22px; }
-.globe-tag-heading { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.globe-tag-location { font-size: 12px; color: #62718a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.globe-countdown { font: 650 26px/1.2 var(--mono); letter-spacing: -.05em; font-variant-numeric: tabular-nums; color: var(--tag-ink); white-space: nowrap; border-top: 1px solid var(--tag-border); padding-top: 8px; }
+.globe-tag-monogram { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font: 700 8px/1 var(--sans); letter-spacing: -.03em; color: var(--tag-ink); }
+.globe-tag-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.compact-globe .globe-tag { width: 178px; height: 84px; padding: 8px; gap: 4px; }
+.compact-globe .globe-tag-logo-frame { width: 28px; height: 28px; }
+.compact-globe .globe-tag-heading { font-size: 12px; }
+.compact-globe .globe-countdown { font-size: 20px; }
+.globe-tag-heading { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.globe-tag-location { font-size: 11px; color: #62718a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.globe-countdown { font: 650 22px/1.2 var(--mono); letter-spacing: -.05em; font-variant-numeric: tabular-nums; color: #46556b; white-space: nowrap; border-top: 1px solid #dbe1ea; padding-top: 6px; }
+.globe-tag.hot .globe-countdown { color: var(--tag-ink); border-color: var(--tag-border); }
+.globe-tag.hot .globe-tag-logo-frame { border-color: var(--tag-border); }
 .globe-tag:not(.has-deadline) .globe-countdown { font: 400 13px/1.4 var(--sans); letter-spacing: 0; }
 .globe-tag-kind { position: absolute; bottom: 10px; right: 10px; font-size: 10px; color: #62718a; }
 .globe-countdown { padding-right: 0; }
 .globe-tag-kind { display: none; }
-.globe-tag.hot::before { content: 'NEXT DEADLINE'; position: absolute; top: -20px; left: 0; font-size: 10px; font-weight: 600; color: var(--tag-light, #efc6ce); text-shadow: 0 1px 3px #17263d, 0 0 4px #17263d; letter-spacing: .09em; }
+.globe-tag.hot::before { content: 'NEXT DEADLINE'; position: absolute; top: -20px; left: 0; width: 112px; height: 14px; font-size: 10px; line-height: 14px; font-weight: 600; color: var(--tag-light, #efc6ce); text-shadow: 0 1px 3px #17263d, 0 0 4px #17263d; letter-spacing: .09em; }
 #globe-status { position: absolute; inset: 46% 0 auto; text-align: center; font-size: 14px; color: #aebfd6; pointer-events: none; }
 [data-renderer="map"] #globe-status { inset: 60px 0 auto; font-size: 13px; }
 .globe-hint { position: absolute; bottom: 22px; left: 24px; color: #aebfd6; font-size: 12px; pointer-events: none; }
@@ -80,6 +81,7 @@
 .live-label { font: 600 10px var(--mono); letter-spacing: .12em; color: #854d59; }
 #spot-body { padding: 20px; gap: 19px; }
 .spot-name { font-size: 35px; line-height: 1.15; letter-spacing: -.055em; }
+.spot-name span { flex-shrink: 0; white-space: nowrap; }
 .spot-location { font-size: 14px; line-height: 1.5; }
 .countdown { border: 0; background: #f9f0f1; padding: 15px 0; }
 .countdown b { font-size: 31px; }
@@ -152,9 +154,6 @@
   .map-head h2 { font-size: 15px; }
   .map-count { font-size: 12px; }
   .globe-tag { gap: 4px; }
-  .globe-tag-heading { font-size: 14px; }
-  .globe-tag-location { font-size: 12px; }
-  .globe-countdown { font-size: 22px; }
   .globe-hint { bottom: 68px; font-size: 11px; }
   .map-tools { right: 16px; bottom: 12px; }
   .map-foot { padding: 12px 16px; font-size: 11px; }

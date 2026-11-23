@@ -6,7 +6,7 @@
     const card = cardFor(point);
     if (!card) return null;
     const title = card.title.toUpperCase();
-    return window.CCF_BRANDS?.[`${title}:${card.year}`] || window.CCF_BRANDS?.[title] || null;
+    return window.CCF_BRANDS?.[`ID:${card.id.toUpperCase()}`] || window.CCF_BRANDS?.[`${title}:${card.year}`] || window.CCF_BRANDS?.[title] || null;
   };
   const rgb = color => color.match(/[a-f\d]{2}/gi).map(value => parseInt(value, 16));
   const mix = (color, target, amount) => {
@@ -14,6 +14,7 @@
     return '#' + from.map((value, i) => Math.round(value + (to[i] - value) * amount).toString(16).padStart(2, '0')).join('');
   };
   const accentFor = point => brandFor(point)?.color || '#526d90';
+  const rippleRadius = 9;
   const formatCountdown = at => {
     const seconds = Math.max(0, Math.floor((at - Date.now()) / 1000));
     const days = Math.floor(seconds / 86400);
@@ -50,17 +51,17 @@
           .globeImageUrl('./assets/earth-blue-marble.jpg')
           .atmosphereColor('#8ba4c5').atmosphereAltitude(.12)
           .pointLat('lat').pointLng('lng')
-          .pointAltitude(p => p.hot ? .035 : .009)
-          .pointRadius(p => p.hot ? .6 : .3)
+          .pointAltitude(p => p.hot ? .025 : .009)
+          .pointRadius(p => p.hot ? 1.15 : .48)
           .pointColor(p => cardFor(p) ? mix(accentFor(p), '#ffffff', p.hot ? .45 : .65) : '#8296b4')
-          .pointsMerge(false).pointResolution(10).pointsTransitionDuration(0)
+          .pointsMerge(false).pointResolution(20).pointsTransitionDuration(0)
           .pointLabel(() => '')
           .onPointClick(p => { this.stopRotation(); options.onSelect(p.key); })
           .onGlobeClick((_, event) => this.selectNearbyLocation(event))
           .onPointHover(p => { this.hoverKey = p?.key || null; this.layoutLabels(); })
           .ringLat('lat').ringLng('lng')
-          .ringColor(p => t => `rgba(${rgb(mix(accentFor(p), '#ffffff', .55)).join(',')},${(1 - t) * .8})`)
-          .ringMaxRadius(3.4).ringPropagationSpeed(1.5).ringRepeatPeriod(1700)
+          .ringColor(p => t => `rgba(${rgb(mix(accentFor(p), '#ffffff', .55)).join(',')},${Math.pow(1 - t, .7) * .95})`)
+          .ringMaxRadius(rippleRadius).ringPropagationSpeed(3.6).ringRepeatPeriod(1300)
           .onZoom(() => { this.layoutLabels(); this.updateZoomButtons(); });
         const material = this.globe.globeMaterial();
         material.color.set('#ffffff');
@@ -190,6 +191,7 @@
           const header = document.createElement('span'); header.className = 'globe-tag-header';
           const logoFrame = document.createElement('span'); logoFrame.className = 'globe-tag-logo-frame';
           const logo = document.createElement('img'); logo.className = 'globe-tag-logo'; logo.alt = ''; logo.hidden = true;
+          logo.loading = 'lazy'; logo.decoding = 'async';
           const monogram = document.createElement('span'); monogram.className = 'globe-tag-monogram';
           logoFrame.setAttribute('aria-hidden', 'true');
           logoFrame.append(logo, monogram);
@@ -315,8 +317,25 @@
       const camera = this.globe.camera().position;
       const radius = this.globe.getGlobeRadius();
       const maxLabels = width < 600 ? 2 : 5;
-      const tagWidth = width < 600 ? 212 : 240;
-      const tagHeight = width < 600 ? 118 : 126;
+      const tagWidth = width < 600 ? 178 : 196;
+      const tagHeight = width < 600 ? 84 : 100;
+      const overlapsMarker = (marker, x, y, boxWidth, boxHeight) => {
+        const dx = marker.x - Math.max(x, Math.min(x + boxWidth, marker.x));
+        const dy = marker.y - Math.max(y, Math.min(y + boxHeight, marker.y));
+        return Math.hypot(dx, dy) < marker.clearance;
+      };
+      const focalLength = height / (2 * Math.tan(this.globe.camera().fov * Math.PI / 360));
+      const globeScreenRadius = focalLength * radius / Math.sqrt(camera.lengthSq() - radius * radius);
+      const markers = [];
+      for (const point of this.locations) {
+        const coords = this.globe.getCoords(point.lat, point.lng);
+        // Keep every visible location clear, even if it has no floating card.
+        if (coords.x * camera.x + coords.y * camera.y + coords.z * camera.z <= radius * radius) continue;
+        const at = this.globe.getScreenCoords(point.lat, point.lng, point.hot ? .025 : .009);
+        const distance = Math.hypot(coords.x - camera.x, coords.y - camera.y, coords.z - camera.z);
+        const clearance = point.hot ? Math.max(26, focalLength * radius * Math.sin(rippleRadius * Math.PI / 180) / distance + 8) : 10;
+        markers.push({ ...at, key: point.key, clearance });
+      }
       const occupied = [];
       const candidates = [...this.locations].filter(p => cardFor(p) || p.key === this.hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
@@ -327,17 +346,26 @@
         // Perspective horizon: a surface point faces the camera only when
         // its normal has a positive dot product with the viewing direction.
         if (coords.x * camera.x + coords.y * camera.y + coords.z * camera.z <= radius * radius * 1.08) continue;
-        const at = this.globe.getScreenCoords(p.lat, p.lng, .015);
+        const at = this.globe.getScreenCoords(p.lat, p.lng, p.hot ? .025 : .009);
         if (at.x < 4 || at.x > width - 4 || at.y < 4 || at.y > height - 28) continue;
-        const right = [at.x + 22, at.y - tagHeight / 2];
-        const left = [at.x - tagWidth - 22, at.y - tagHeight / 2];
-        const choices = at.x > width / 2 ? [right, left] : [left, right];
-        choices.push([at.x - tagWidth / 2, at.y - tagHeight - 32], [at.x - tagWidth / 2, at.y + 30], [at.x + 38, at.y - tagHeight - 50], [at.x - tagWidth - 38, at.y + 42]);
+        const marker = markers.find(m => m.key === p.key);
+        const gap = (marker?.clearance || 10) + 14;
+        const right = Math.max(at.x + gap, width / 2 + globeScreenRadius + 14);
+        const left = Math.min(at.x - tagWidth - gap, width / 2 - globeScreenRadius - tagWidth - 14);
+        const sides = at.x > width / 2 ? [right, left] : [left, right];
+        const choices = sides.flatMap(x => [[x, at.y - tagHeight / 2], [x, at.y - tagHeight - gap], [x, at.y + gap]]);
+        choices.push([at.x - tagWidth / 2, at.y - tagHeight - gap], [at.x - tagWidth / 2, at.y + gap]);
+        const minY = p.hot && width >= 600 ? 82 : 64;
+        const maxY = height - tagHeight - (width < 600 ? 86 : 65);
+        // Dense views may only have space at the top or bottom of the stage.
+        for (const x of [...sides, at.x - tagWidth / 2]) choices.push([x, minY], [x, maxY]);
         let box;
         for (const [x, y] of choices) {
-          const test = { x: Math.max(12, Math.min(width - tagWidth - 12, x)), y: Math.max(p.hot ? 82 : 62, Math.min(height - tagHeight - 65, y)) };
+          const test = { x: Math.max(12, Math.min(width - tagWidth - 12, x)), y: Math.max(minY, Math.min(maxY, y)) };
           const top = test.y - (p.hot ? 20 : 0);
-          if (!occupied.some(b => test.x < b.x + tagWidth + 10 && test.x + tagWidth + 10 > b.x && top < b.y + b.height + 10 && test.y + tagHeight + 10 > b.y)) { box = test; break; }
+          const coversMarker = markers.some(m => overlapsMarker(m, test.x, test.y, tagWidth, tagHeight)
+            || (p.hot && overlapsMarker(m, test.x, top, 112, 14)));
+          if (!coversMarker && !occupied.some(b => test.x < b.x + tagWidth + 10 && test.x + tagWidth + 10 > b.x && top < b.y + b.height + 10 && test.y + tagHeight + 10 > b.y)) { box = test; break; }
         }
         if (!box) continue;
         const entry = this.labels.get(p.key);
