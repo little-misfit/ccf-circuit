@@ -48,9 +48,13 @@
   let zoom = 1, center = [500,223];
   let lastNow = Date.now();
   let globeView = null;
+  const hasUnannouncedDeadline = e => !e.deadlines.length || e.deadlines.some(d => !Number.isFinite(d.ts));
 
   function populateYears() {
-    const years = state.mode === 'meet' ? seasons : [...new Set(events.flatMap(e => e.deadlines.filter(d => Number.isFinite(d.ts)).map(d => Number(cst(d.ts).slice(0,4)))))].sort((a,b) => b-a);
+    const years = state.mode === 'meet' ? seasons : [...new Set(events.flatMap(e => [
+      ...e.deadlines.filter(d => Number.isFinite(d.ts)).map(d => Number(cst(d.ts).slice(0,4))),
+      ...(hasUnannouncedDeadline(e) ? [e.meetingYear] : [])
+    ]))].sort((a,b) => b-a);
     if (!years.includes(state.year) && years.length) state.year = years.includes(currentYear) ? currentYear : years[0];
     $('year').innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
     $('year').value = state.year;
@@ -69,6 +73,11 @@
           if (!Number.isFinite(d.ts)) continue;
           const dt = cst(d.ts);
           if (Number(dt.slice(0,4)) === state.year) items.push({e, date:dt.slice(0,10), d});
+        }
+        // Keep unannounced submissions visible under their conference year,
+        // without assigning them an invented submission date or month.
+        if (e.meetingYear === state.year && hasUnannouncedDeadline(e)) {
+          items.push({e, date:'', d:null, undated:true});
         }
       }
     }
@@ -90,7 +99,7 @@
     return d ? `${d}d ${h}h left` : h ? `${h}h ${m}m left` : m ? `${m} min left` : 'Under 1 min';
   }
   function pendingSubmissions(now = Date.now()) {
-    const entries = rows.map(({e,d}) => ({e,d:d || nextDeadline(e,now)})).filter(s => s.d && s.d.ts > now);
+    const entries = rows.filter(r => !r.undated).map(({e,d}) => ({e,d:d || nextDeadline(e,now)})).filter(s => s.d && s.d.ts > now);
     const unique = new Map(entries.map(s => [`${s.e.id}:${s.d.ts}:${s.d.type}`, s]));
     return [...unique.values()].sort((a,b) => a.d.ts-b.d.ts || byName(a.e.title,b.e.title));
   }
@@ -122,21 +131,22 @@
     let group = null, chunk = [];
     function finish() {
       if (!chunk.length) return;
-      const label = group ? monthNames[group] : 'Dates to be announced';
-      blocks.push(`<div class="group-title"><b>${label}</b><span>${group ? state.year : ''}</span></div><div class="rows">${chunk.join('')}</div>`);
+      const pendingDates = !group && state.mode === 'deadline';
+      const label = group ? monthNames[group] : pendingDates ? 'Deadlines to be announced' : 'Dates to be announced';
+      blocks.push(`<div class="group-title"><b>${label}</b><span>${group ? state.year : pendingDates ? state.year+' conference editions' : ''}</span></div><div class="rows">${chunk.join('')}</div>`);
       chunk = [];
     }
-    for (const {e,date,d} of rows.slice(0,state.limit)) {
+    for (const {e,date,d,undated} of rows.slice(0,state.limit)) {
       const month = Number(date.slice(5,7)) || 0;
       if (month !== group) { finish(); group = month; }
-      const next = d || nextDeadline(e,Date.now());
+      const next = undated ? null : d || nextDeadline(e,Date.now());
       const day = date ? date.slice(8,10) : '—';
       const subDate = d ? cst(d.ts).slice(11) : month ? monthNames[month].slice(0,3) : 'TBA';
       const shortDate = next ? cst(next.ts).slice(5,16) : '';
-      const status = next ? relative(next.ts) : deadlineStatus(e,Date.now());
+      const status = undated ? 'Deadline TBA' : next ? relative(next.ts) : deadlineStatus(e,Date.now());
       const second = d ? typeName(d) : next ? typeName(next) : 'Submission status';
       const saved = state.saved.has(e.id);
-      const nearest = e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
+      const nearest = !undated && e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
       chunk.push(`<article class="event${nearest ? ' is-next' : ''}" data-row="${esc(e.id)}"><div class="date-block"><strong>${day}</strong><small>${subDate}</small></div><div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><small>${e.year} · ${esc(fields[e.category] || e.category)}</small></div><div class="cell location-cell"><span class="place-text">${esc(e.place || 'Location TBA')}</span><small>${esc(e.date || 'Dates TBA')}</small></div><div class="cell"><span class="deadline-text ${next && next.ts>Date.now() ? 'active-deadline':''}" ${next ? `data-relative="${next.ts}"` : ''}>${status}</span><small>${second} ${esc(shortDate)}</small></div><button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'Unsave':'Save'} ${esc(e.title)} ${e.year}">${icon('star')}</button></article>`);
     }
     finish();
@@ -168,10 +178,13 @@
     $('city-pop').hidden=true; openCity=null;
     const pending = pendingSubmissions();
     if (globeView?.available) {
+      const undated = new Set(rows.filter(r => r.undated || (state.mode === 'meet' && hasUnannouncedDeadline(r.e))).map(r => r.e));
       globeView.setLocations([...cityMap.values()].map(p => {
         const first = pending.find(({e}) => p.events.includes(e));
+        const waiting = !first && p.events.find(e => undated.has(e));
         return {...p, lng:p.lon, hot:p.events.some(e => e.id === spotlight?.e.id),
-          next:first ? {id:first.e.id,title:first.e.title,year:first.e.year,at:first.d.ts,type:first.d.type} : null};
+          next:first ? {id:first.e.id,title:first.e.title,year:first.e.year,at:first.d.ts,type:first.d.type} : null,
+          undated:waiting ? {id:waiting.id,title:waiting.title,year:waiting.year} : null};
       }));
       return;
     }
@@ -208,7 +221,7 @@
     if(!p)return;
     openCity=key;
     const pending = pendingSubmissions();
-    $('city-pop').innerHTML=`<div class="pop-title">${esc(p.name)} · ${countLabel(p.events.length,'conference')}<button id="pop-close" aria-label="Close city conferences">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{const next=pending.find(s=>s.e===e)?.d;const status=nextDeadline(e,Date.now())?'No upcoming deadlines in this range':deadlineStatus(e,Date.now());return `<button class="pop-event" data-open="${esc(e.id)}"><strong>${esc(e.title)} ${e.year}</strong><span>${next?typeName(next)+' · '+relative(next.ts):status}</span></button>`;}).join('')}`;
+    $('city-pop').innerHTML=`<div class="pop-title">${esc(p.name)} · ${countLabel(p.events.length,'conference')}<button id="pop-close" aria-label="Close city conferences">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{const next=pending.find(s=>s.e===e)?.d;const status=rows.some(r=>r.e===e&&r.undated)?'Deadline TBA':nextDeadline(e,Date.now())?'No upcoming deadlines in this range':deadlineStatus(e,Date.now());return `<button class="pop-event" data-open="${esc(e.id)}"><strong>${esc(e.title)} ${e.year}</strong><span>${next?typeName(next)+' · '+relative(next.ts):status}</span></button>`;}).join('')}`;
     $('city-pop').hidden=false;
     $('pop-close').focus({preventScroll:true});
   }
@@ -218,7 +231,8 @@
     const unique=[...new Set(rows.map(r=>r.e))];
     $('title').textContent=state.favOnly?'Saved conferences':'CCF-Schedule';
     $('agenda-label').textContent=state.mode==='meet'?'Conference schedule':'Submission deadlines';
-    $('result-count').textContent=countLabel(unique.length,'conference')+(state.mode==='deadline'?' · '+countLabel(rows.length,'deadline'):'');
+    const undatedCount = rows.filter(r => r.undated).length;
+    $('result-count').textContent=countLabel(unique.length,'conference')+(state.mode==='deadline'?' · '+countLabel(rows.length-undatedCount,'deadline')+(undatedCount?' · '+undatedCount+' TBA':''):'');
     $('fav-count').textContent=state.saved.size;
     $('nav-fav').setAttribute('aria-pressed',state.favOnly);
     $('nav-all').setAttribute('aria-pressed',!state.favOnly);

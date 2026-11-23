@@ -18,6 +18,8 @@ The English interface uses a muted red, white and blue palette. Conference cards
 
 Conference records come from [CCFDDL](https://ccfddl.com/) and its [public dataset](https://ccfddl.com/conference/allconf.json). Each abstract and paper submission round is listed separately. Countdown calculations respect the source time zone; displayed submission times use **UTC+8**. The details panel also retains the original local deadline and time zone.
 
+In submission mode, conferences whose deadlines are unannounced remain visible under **Deadlines to be announced** for their conference year, including on the globe. Their cards show **Deadline TBA** instead of a numeric countdown. They are counted separately from known deadline entries and excluded when a specific submission month is selected, since that month is not yet known.
+
 Conference names, venue descriptions, dates and submission notes are preserved from the source. Saved conferences remain in the current browser; the existing storage key is retained across the rename to CCF-Schedule.
 
 ## Run locally

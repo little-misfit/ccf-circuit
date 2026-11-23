@@ -120,6 +120,28 @@ def main():
               and page.locator('#year').input_value() == str(default_year))
         check('initial filters are CCF A and Artificial Intelligence', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == 'AI')
         nearest(page, 'nearest future deadline respects the initial AI and CCF A filters')
+        iccv = page.locator('#schedule [data-row="iccv27"]')
+        check('ICCV 2027 remains listed when its submission date is unknown', iccv.count() == 1 and 'Deadline TBA' in iccv.text_content())
+        page.locator('#search').fill('ICCV'); page.wait_for_timeout(1000)
+        iccv_card = page.locator('.globe-tag[data-open="iccv27"]')
+        check('search focuses the undated ICCV conference in Hong Kong', iccv_card.is_visible()
+              and page.evaluate("__qaGlobe.locations.length===1 && __qaGlobe.locations[0].name==='Hong Kong'"))
+        check('ICCV TBA has no invented countdown or nearest-deadline highlight',
+              iccv_card.locator('.globe-countdown').text_content() == 'Deadline TBA'
+              and page.locator('.globe-tag.hot').count() == 0 and page.locator('.spot-name').count() == 0
+              and page.evaluate("CCF_DATA.events.find(e=>e.id==='iccv27').deadlines.every(d=>d.at===null)"))
+        check('undated ICCV uses its official edition logo', iccv_card.locator('.globe-tag-logo').evaluate("image=>image.complete && image.naturalWidth>0 && image.src===new URL(CCF_BRANDS['ICCV:2027'].logo,document.baseURI).href"))
+        iccv_card.click()
+        check('ICCV detail preserves the unpublished submission date', page.locator('#detail').is_visible()
+              and 'ICCV 2027' in page.locator('#detail-title').text_content()
+              and 'To be announced' in page.locator('.detail-timeline').text_content())
+        page.keyboard.press('Escape')
+        page.locator('#months [data-month="10"]').click()
+        check('a conference month does not supply an unknown submission month',
+              page.locator('#schedule [data-row="iccv27"]').count() == 0 and page.evaluate('__qaGlobe.locations.length===0'))
+        page.locator('#months [data-month="0"]').click(); page.locator('#year').select_option('2026')
+        check('ICCV 2027 TBA does not leak into another submission year', page.locator('#schedule [data-row="iccv27"]').count() == 0)
+        page.locator('#year').select_option(str(default_year)); page.locator('#search').fill('')
         brand_cards = []
         for conference in ['ACL', 'ICML']:
             page.locator('#search').fill(conference)
@@ -239,7 +261,7 @@ def main():
             check(f'{width}px: no page overflow or overlapping floating cards', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and not overlap and fits, boxes)
             check(f'{width}px: nearest deadline remains visible and readable', page.locator('.globe-tag.hot:not([hidden])').count() > 0)
             check(f'{width}px: English labels fit their cards', page.locator('.globe-tag:not([hidden])').evaluate_all('es=>es.every(e=>e.scrollWidth<=e.clientWidth+1)'))
-            timer_sizes = page.locator('.globe-tag:not([hidden]) .globe-countdown').evaluate_all('es=>es.map(e=>parseFloat(getComputedStyle(e).fontSize))')
+            timer_sizes = page.locator('.globe-tag.has-deadline:not([hidden]) .globe-countdown').evaluate_all('es=>es.map(e=>parseFloat(getComputedStyle(e).fontSize))')
             check(f'{width}px: floating countdown text is enlarged', bool(timer_sizes) and min(timer_sizes) >= (22 if width >= 768 else 19), timer_sizes)
             if width in [1440, 390]:
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
@@ -322,7 +344,52 @@ def main():
         page.locator('#mode-meet').click(); page.locator('#year').select_option('2027'); page.locator('#months [data-month="0"]').click()
         page.evaluate('window.__clockOffset=180000');page.wait_for_timeout(1400)
         check('expired deadline advances highlight and never shows negative time',page.locator('.spot-name').get_attribute('data-open')=='1' and page.evaluate("__qaGlobe.locations.filter(p=>p.hot).every(p=>p.next.id==='1')") and '-' not in page.locator('.globe-tag.hot .globe-countdown').text_content())
-        context.close();browser.close()
+        context.close()
+
+        # A known abstract date and an unpublished paper date must keep separate scopes.
+        context = browser.new_context(viewport={'width':1440,'height':1050})
+        context.add_init_script(CAPTURE)
+        context.add_init_script("const realNow=Date.now,start=realNow(),baseline=Date.parse('2026-06-01T00:00:00Z');Date.now=()=>baseline+realNow()-start;")
+        def scope_fixture(route):
+            specs = [
+                ('mixed', 'Mixed', 2027, 'Paris, France', [('abstract', '2026-12-02T12:00:00Z'), ('paper', None)]),
+                ('dated', 'Dated', 2028, 'Seattle, USA', [('paper', '2027-01-12T12:00:00Z')]),
+                ('empty', 'Empty', 2027, 'Berlin, Germany', []),
+                ('multiple', 'Multiple', 2027, 'Tokyo, Japan', [('abstract', None), ('paper', None)]),
+                ('other', 'Other', 2028, 'London, UK', [('paper', None)]),
+            ]
+            records = [{'id':key,'title':title,'name':title,'year':year,'rank':'A','category':'AI',
+                        'place':place,'date':f'May 1-3, {year}','start':f'{year}-05-01','end':f'{year}-05-03',
+                        'link':'https://example.com/','deadlines':[{'type':kind,'at':at,'local':at or 'TBD','timezone':'UTC','round':1,'note':''} for kind,at in dates]}
+                       for key,title,year,place,dates in specs]
+            route.fulfill(content_type='text/javascript',body='window.CCF_DATA='+json.dumps({'events':records,'updatedAt':'2026-06-01T00:00:00Z'})+';')
+        context.route(re.compile(r'/conferences\.js(?:\?.*)?$'), scope_fixture)
+        page = context.new_page(); page.goto(args.url); ready(page); pause(page)
+        check('mixed fixture initially shows only the dated milestone in its submission year',
+              page.locator('#year').input_value() == '2026' and page.locator('#schedule .event').count() == 1
+              and page.locator('#schedule [data-row="mixed"] .deadline-text').text_content() != 'Deadline TBA')
+        page.locator('#year').select_option('2027')
+        ids = page.locator('#schedule .event').evaluate_all('es=>es.map(e=>e.dataset.row).sort()')
+        check('undated conferences use their meeting year while dated milestones use submission year', ids == ['dated','empty','mixed','multiple'], ids)
+        check('missing and multiple unknown dates create one TBA row per conference',
+              all(page.locator(f'#schedule [data-row="{key}"]').count() == 1
+                  and page.locator(f'#schedule [data-row="{key}"] .deadline-text').text_content() == 'Deadline TBA'
+                  for key in ['mixed','empty','multiple']))
+        check('TBA group and counts are separate from confirmed deadlines',
+              'Deadlines to be announced' in page.locator('#schedule').text_content()
+              and '1 deadline' in page.locator('#result-count').text_content()
+              and '3 TBA' in page.locator('#result-count').text_content())
+        check('a mixed TBA entry cannot borrow an out-of-scope future countdown',
+              page.locator('.spot-name').get_attribute('data-open') == 'dated'
+              and page.evaluate("__qaGlobe.locations.find(p=>p.name==='Paris').next===null && !__qaGlobe.locations.find(p=>p.name==='Paris').hot"))
+        page.locator('#months [data-month="1"]').click()
+        check('month filtering includes only confirmed milestones in that month',
+              page.locator('#schedule .event').count() == 1 and page.locator('#schedule [data-row="dated"]').count() == 1)
+        page.locator('#months [data-month="0"]').click(); page.locator('#year').select_option('2028')
+        check('a year with only unpublished deadlines remains selectable without a fake countdown',
+              page.locator('#schedule .event').count() == 1 and page.locator('#schedule [data-row="other"]').count() == 1
+              and page.locator('.spot-name').count() == 0 and page.evaluate('__qaGlobe.locations.every(p=>!p.next && !p.hot)'))
+        context.close(); browser.close()
 
     check('no unexpected JavaScript errors', not report['errors'], report['errors'])
     check('all application assets loaded', not report['httpErrors'], report['httpErrors'])

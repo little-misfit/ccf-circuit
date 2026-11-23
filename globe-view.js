@@ -1,10 +1,12 @@
 'use strict';
 (() => {
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  const cardFor = point => point.next || point.undated;
   const brandFor = point => {
-    if (!point.next) return null;
-    const title = point.next.title.toUpperCase();
-    return window.CCF_BRANDS?.[`${title}:${point.next.year}`] || window.CCF_BRANDS?.[title] || null;
+    const card = cardFor(point);
+    if (!card) return null;
+    const title = card.title.toUpperCase();
+    return window.CCF_BRANDS?.[`${title}:${card.year}`] || window.CCF_BRANDS?.[title] || null;
   };
   const rgb = color => color.match(/[a-f\d]{2}/gi).map(value => parseInt(value, 16));
   const mix = (color, target, amount) => {
@@ -50,7 +52,7 @@
           .pointLat('lat').pointLng('lng')
           .pointAltitude(p => p.hot ? .035 : .009)
           .pointRadius(p => p.hot ? .6 : .3)
-          .pointColor(p => p.next ? mix(accentFor(p), '#ffffff', p.hot ? .45 : .65) : '#8296b4')
+          .pointColor(p => cardFor(p) ? mix(accentFor(p), '#ffffff', p.hot ? .45 : .65) : '#8296b4')
           .pointsMerge(false).pointResolution(10).pointsTransitionDuration(0)
           .pointLabel(() => '')
           .onPointClick(p => { this.stopRotation(); options.onSelect(p.key); })
@@ -206,42 +208,42 @@
           this.labels.set(p.key, entry);
         }
         entry.point = p;
-        const brand = brandFor(p), accent = accentFor(p);
+        const card = cardFor(p), brand = brandFor(p), accent = accentFor(p);
         for (const [name, value] of Object.entries({
           accent, edge: mix(accent, '#73809a', .3), ink: mix(accent, '#182338', .42), surface: mix(accent, '#ffffff', .94),
           border: mix(accent, '#ffffff', .55), light: mix(accent, '#ffffff', .67)
         })) entry.button.style.setProperty('--tag-' + name, value);
         entry.button.style.setProperty('--tag-logo-background', brand?.background || '#ffffff');
         entry.line.style.stroke = mix(accent, '#ffffff', .65);
-        entry.monogram.textContent = p.next ? p.next.title.slice(0, 5) : 'CITY';
+        entry.monogram.textContent = card ? card.title.slice(0, 5) : 'CITY';
         entry.logo.hidden = !brand?.logo || entry.logo.dataset.failed === brand.logo;
         entry.monogram.hidden = !entry.logo.hidden;
         if (brand?.logo) {
           if (entry.logo.getAttribute('src') !== brand.logo) entry.logo.src = brand.logo;
         } else entry.logo.removeAttribute('src');
-        entry.button.dataset.brand = brand ? p.next.title.toUpperCase() : '';
+        entry.button.dataset.brand = brand ? card.title.toUpperCase() : '';
         entry.button.classList.toggle('hot', p.hot);
         entry.button.classList.toggle('has-deadline', Boolean(p.next));
         entry.button.dataset.city = p.key;
-        if (p.next) entry.button.dataset.open = p.next.id;
+        if (card) entry.button.dataset.open = card.id;
         else delete entry.button.dataset.open;
-        entry.heading.textContent = p.next ? `${p.next.title} ${p.next.year}` : p.name;
-        entry.location.textContent = p.next ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}` : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
-        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : 'View conferences';
-        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : 'View conferences'}`);
+        entry.heading.textContent = card ? `${card.title} ${card.year}` : p.name;
+        entry.location.textContent = p.next ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}` : p.undated ? p.name : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
+        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : p.undated ? 'Deadline TBA' : 'View conferences';
+        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : p.undated ? 'Deadline to be announced. View details' : 'View conferences'}`);
         entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
       this.updateCountdowns();
-      const hot = locations.find(p => p.hot);
-      const target = hot ? `${hot.key}:${hot.next?.id}:${hot.next?.at}` : null;
-      if (target && target !== this.highlight) this.focusLocation(hot, this.highlight !== null);
+      const focus = locations.find(p => p.hot) || (locations.length === 1 ? locations[0] : null);
+      const target = focus ? `${focus.key}:${cardFor(focus)?.id}:${focus.next?.at}` : null;
+      if (target && target !== this.highlight) this.focusLocation(focus, this.highlight !== null);
       this.highlight = target;
       this.layoutLabels();
     }
 
     updateCountdowns() {
       for (const { point, timer } of this.labels.values()) {
-        timer.textContent = point.next ? formatCountdown(point.next.at) : 'No upcoming deadline';
+        timer.textContent = point.next ? formatCountdown(point.next.at) : point.undated ? 'Deadline TBA' : 'No upcoming deadline';
       }
     }
 
@@ -273,7 +275,7 @@
     }
 
     reset() {
-      const target = this.locations.find(p => p.hot) || { lat: 25, lng: 100 };
+      const target = this.locations.find(p => p.hot) || (this.locations.length === 1 ? this.locations[0] : { lat: 25, lng: 100 });
       this.focusLocation(target);
     }
 
@@ -316,7 +318,7 @@
       const tagWidth = width < 600 ? 212 : 240;
       const tagHeight = width < 600 ? 118 : 126;
       const occupied = [];
-      const candidates = [...this.locations].filter(p => p.next || p.key === this.hoverKey)
+      const candidates = [...this.locations].filter(p => cardFor(p) || p.key === this.hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
       const visible = new Set();
       for (const p of candidates) {

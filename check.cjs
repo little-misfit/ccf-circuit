@@ -71,13 +71,40 @@ if (process.argv.includes('--browser')) {
       verify(get('mode-deadline').getAttribute('aria-pressed') === 'true', 'Submission deadlines must be the default mode');
       const futureAI = window.CCF_DATA.events.filter(e => e.rank === 'A' && e.category === 'AI')
         .flatMap(e => e.deadlines.map(d => Date.parse(d.at))).filter(at => at > Date.now());
-      const defaultYear = new Date((futureAI.length ? Math.min(...futureAI) : Date.now()) + 8 * 3600000).getUTCFullYear();
+      const currentYear = new Date(Date.now() + 8 * 3600000).getUTCFullYear();
+      const preferredYear = new Date((futureAI.length ? Math.min(...futureAI) : Date.now()) + 8 * 3600000).getUTCFullYear();
+      const availableYears = [...get('year').options].map(option => Number(option.value));
+      const defaultYear = availableYears.includes(preferredYear) ? preferredYear : availableYears.includes(currentYear) ? currentYear : availableYears[0];
       verify(get('year').value === String(defaultYear), 'Default year must contain the next AI CCF A deadline');
       verify(get('rank').value === 'A' && get('category').value === 'AI', 'Initial filters must be CCF A and Artificial Intelligence');
-      const logo = document.querySelector('.globe-tag.hot .globe-tag-logo');
-      verify(logo && new URL(logo.src).pathname.includes('/assets/conferences/'), 'Expected a local conference logo');
-      await until(() => logo.complete && logo.naturalWidth > 0, 'Conference logo did not load');
-      verify(parseFloat(getComputedStyle(document.querySelector('.globe-tag.hot .globe-countdown')).fontSize) >= 22, 'Floating countdown is too small');
+      const hot = document.querySelector('.globe-tag.hot');
+      if (hot) {
+        const next = window.__qaGlobe.locations.find(point => point.hot)?.next;
+        const title = next?.title.toUpperCase();
+        const brand = window.CCF_BRANDS[`${title}:${next?.year}`] || window.CCF_BRANDS[title];
+        if (brand?.logo) {
+          const logo = hot.querySelector('.globe-tag-logo');
+          verify(logo && logo.src === new URL(brand.logo, document.baseURI).href, 'Expected the registered conference logo');
+          await until(() => logo.complete && logo.naturalWidth > 0, 'Conference logo did not load');
+        } else {
+          const monogram = hot.querySelector('.globe-tag-monogram');
+          verify(monogram && !monogram.hidden && monogram.textContent.trim(), 'Unregistered conference needs a monogram');
+        }
+        verify(parseFloat(getComputedStyle(hot.querySelector('.globe-countdown')).fontSize) >= 22, 'Floating countdown is too small');
+      }
+      const iccv = window.CCF_DATA.events.find(e => e.id === 'iccv27');
+      if (iccv?.deadlines.some(d => !d.at)) {
+        change('year', '2027');
+        change('search', 'ICCV');
+        verify(document.querySelector('[data-row="iccv27"]')?.textContent.includes('Deadline TBA'), 'ICCV with an unknown deadline disappeared');
+        await until(() => document.querySelector('.globe-tag[data-open="iccv27"]:not([hidden])'), 'Undated ICCV did not appear on the globe');
+        verify(!document.querySelector('.globe-tag.hot') && !document.querySelector('.spot-name'), 'Unknown deadline received a false countdown highlight');
+        document.querySelector('.globe-tag[data-open="iccv27"]').click();
+        verify(get('detail').open && get('detail-content').textContent.includes('To be announced'), 'Undated conference detail failed');
+        get('detail-close').click();
+        change('search', '');
+        change('year', String(defaultYear));
+      }
       change('rank', '');
       change('category', '');
       const globe = window.__qaGlobe.globe;
