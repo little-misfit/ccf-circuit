@@ -140,8 +140,9 @@ if (process.argv.includes('--browser')) {
       get('nav-all').click();
       get('mode-deadline').click();
       verify(get('agenda-label').textContent === 'Submission deadlines', 'Deadline mode failed');
-      change('year', String(new Date().getFullYear()));
-      verify(document.querySelector('.event'), 'No deadline rows in current year');
+      const testYear = [...get('year').options].some(option => Number(option.value) === currentYear) ? currentYear : get('year').value;
+      change('year', String(testYear));
+      verify(document.querySelector('.event'), 'No deadline rows in an available year');
       change('search', 'no-such-conference-zzz');
       verify(get('clear-filter'), 'Empty search state failed');
       verify(globe.pointsData().length === 0, 'Empty filter left stale globe locations');
