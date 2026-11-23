@@ -43,6 +43,7 @@
   let rows = [], spotlight = null, cityMap = new Map(), openCity = null;
   let zoom = 1, center = [500,223];
   let lastNow = Date.now();
+  let globeView = null;
 
   function populateYears() {
     const years = state.mode === 'meet' ? seasons : [...new Set(events.flatMap(e => e.deadlines.filter(d => Number.isFinite(d.ts)).map(d => Number(cst(d.ts).slice(0,4)))))].sort((a,b) => b-a);
@@ -84,11 +85,21 @@
     const [d,h,m] = delta(ts,now);
     return d ? `剩 ${d} 天 ${h} 小时` : h ? `剩 ${h} 小时 ${m} 分` : m ? `剩 ${m} 分钟` : '不足 1 分钟';
   }
-  function makeSpotlight(now) {
+  function pendingSubmissions(now = Date.now()) {
     const entries = rows.map(({e,d}) => ({e,d:d || nextDeadline(e,now)})).filter(s => s.d && s.d.ts > now);
-    return entries.sort((a,b) => a.d.ts-b.d.ts || byName(a.e.title,b.e.title))[0] || null;
+    const unique = new Map(entries.map(s => [`${s.e.id}:${s.d.ts}:${s.d.type}`, s]));
+    return [...unique.values()].sort((a,b) => a.d.ts-b.d.ts || byName(a.e.title,b.e.title));
+  }
+  function makeSpotlight(now) {
+    return pendingSubmissions(now)[0] || null;
+  }
+  function renderUpcoming() {
+    const upcoming = pendingSubmissions().slice(1,4);
+    $('upcoming-list').innerHTML = upcoming.length ? upcoming.map(({e,d}) => `<button class="upcoming-item" data-open="${esc(e.id)}"><span class="upcoming-main"><strong>${esc(e.title)} <small>${e.year}</small></strong>${rankBadge(e)}</span><span class="upcoming-time">${typeName(d)} · ${esc(cst(d.ts))}</span><span class="upcoming-relative" data-relative="${d.ts}">${relative(d.ts)}</span></button>`).join('') : '<p class="upcoming-empty">当前范围暂无更多待截止投稿。</p>';
   }
   function renderSpot() {
+    $('focus-deadline').disabled = !spotlight?.e.points.length;
+    $('focus-deadline').innerHTML = icon('focus') + (spotlight && !spotlight.e.points.length ? '举办地点暂未定位' : '在地球上定位');
     if (!spotlight) {
       $('spot-body').innerHTML = '<p class="small-empty"><b>暂无待截止投稿</b>当前范围内没有已公布的未来投稿截止时间。</p>';
       return;
@@ -98,6 +109,7 @@
     renderClock();
   }
   function renderClock() {
+    globeView?.updateCountdowns();
     if (!spotlight) return;
     delta(spotlight.d.ts).forEach((v,i) => { $('tick-'+i).textContent = pad(v); });
   }
@@ -120,7 +132,8 @@
       const status = next ? relative(next.ts) : deadlineStatus(e,Date.now());
       const second = d ? typeName(d) : next ? typeName(next) : '投稿状态';
       const saved = state.saved.has(e.id);
-      chunk.push(`<article class="event" data-row="${esc(e.id)}"><div class="date-block"><strong>${day}</strong><small>${subDate}</small></div><div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><small>${e.year} · ${esc(fields[e.category] || e.category)}</small></div><div class="cell location-cell"><span class="place-text">${esc(e.place || '地点待公布')}</span><small>${esc(e.date || '会期待公布')}</small></div><div class="cell"><span class="deadline-text ${next && next.ts>Date.now() ? 'active-deadline':''}" ${next ? `data-relative="${next.ts}"` : ''}>${status}</span><small>${second} ${esc(shortDate)}</small></div><button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'取消收藏':'收藏'} ${esc(e.title)} ${e.year}">${icon('star')}</button></article>`);
+      const nearest = e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
+      chunk.push(`<article class="event${nearest ? ' is-next' : ''}" data-row="${esc(e.id)}"><div class="date-block"><strong>${day}</strong><small>${subDate}</small></div><div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><small>${e.year} · ${esc(fields[e.category] || e.category)}</small></div><div class="cell location-cell"><span class="place-text">${esc(e.place || '地点待公布')}</span><small>${esc(e.date || '会期待公布')}</small></div><div class="cell"><span class="deadline-text ${next && next.ts>Date.now() ? 'active-deadline':''}" ${next ? `data-relative="${next.ts}"` : ''}>${status}</span><small>${second} ${esc(shortDate)}</small></div><button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'取消收藏':'收藏'} ${esc(e.title)} ${e.year}">${icon('star')}</button></article>`);
     }
     finish();
     $('schedule').innerHTML = blocks.join('') || `<div class="empty">${state.favOnly ? '当前范围没有已收藏会议。点击日程中的星标即可收藏。' : '当前筛选范围没有匹配的会议。'} <button id="clear-filter">重置筛选</button></div>`;
@@ -144,6 +157,19 @@
         const city = cityMap.get(key);
         if (!city.events.includes(e)) city.events.push(e);
       }
+    }
+    $('map-count').textContent=cityMap.size+' 个城市';
+    $('unmapped').textContent=missing ? missing+' 场地点待定位' : '';
+    $('unmapped').title='地点待定、线上举办或无法可靠定位的会议仍保留在日程中';
+    $('city-pop').hidden=true; openCity=null;
+    const pending = pendingSubmissions();
+    if (globeView?.available) {
+      globeView.setLocations([...cityMap.values()].map(p => {
+        const first = pending.find(({e}) => p.events.includes(e));
+        return {...p, lng:p.lon, hot:p.events.some(e => e.id === spotlight?.e.id),
+          next:first ? {id:first.e.id,title:first.e.title,year:first.e.year,at:first.d.ts,type:first.d.type} : null};
+      }));
+      return;
     }
     const svg = [];
     const groups = [...cityMap.values()].map(p => ({...p,xy:geo.project(p.lon,p.lat),hot:p.events.some(e => e.id === spotlight?.e.id)}))
@@ -170,8 +196,6 @@
     }
     $('markers').innerHTML=svg.join('');
     $('map-count').textContent=cityMap.size+' 个城市';
-    $('unmapped').textContent=missing ? missing+' 场未标点' : '';
-    $('unmapped').title='地点待定、线上举办或无法可靠定位的会议仍保留在日程中';
     $('city-pop').hidden=true; openCity=null;
     mapView();
   }
@@ -179,7 +203,8 @@
     const p=cityMap.get(key);
     if(!p)return;
     openCity=key;
-    $('city-pop').innerHTML=`<div class="pop-title">${esc(p.name)} · ${p.events.length} 场<button id="pop-close" aria-label="关闭城市会议">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>`<button class="pop-event" data-open="${esc(e.id)}">${esc(e.title)} ${e.year}</button>`).join('')}`;
+    const pending = pendingSubmissions();
+    $('city-pop').innerHTML=`<div class="pop-title">${esc(p.name)} · ${p.events.length} 场<button id="pop-close" aria-label="关闭城市会议">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{const next=pending.find(s=>s.e===e)?.d;const status=nextDeadline(e,Date.now())?'当前范围无待截止投稿':deadlineStatus(e,Date.now());return `<button class="pop-event" data-open="${esc(e.id)}"><strong>${esc(e.title)} ${e.year}</strong><span>${next?typeName(next)+' · '+relative(next.ts):status}</span></button>`;}).join('')}`;
     $('city-pop').hidden=false;
     $('pop-close').focus({preventScroll:true});
   }
@@ -196,11 +221,12 @@
     $('mode-meet').setAttribute('aria-pressed',state.mode==='meet');
     $('mode-deadline').setAttribute('aria-pressed',state.mode==='deadline');
     $('months').innerHTML=Array.from({length:13},(_,i)=>`<button data-month="${i}" aria-pressed="${i===state.month}">${i?i+' 月':'全年'}</button>`).join('');
-    renderSpot();renderMap(unique);renderSchedule();
+    renderSpot();renderUpcoming();renderMap(unique);renderSchedule();
   }
   function showDetail(id) {
     const e=eventById.get(id);if (!e) return;
     const saved=state.saved.has(id);
+    globeView?.stopRotation();
     $('detail-content').innerHTML=`<div class="detail-top"><div>${rankBadge(e)} <span class="meta">${esc(fields[e.category]||e.category)}</span></div><button id="detail-close" autofocus aria-label="关闭会议详情">${icon('close')}</button></div><h2 id="detail-title" class="detail-name">${esc(e.title)} ${e.year}</h2><p class="detail-long">${esc(e.name)}</p><div class="detail-info"><div>${icon('calendar')}${esc(e.date||'会期待公布')}</div><div>${icon('pin')}${esc(e.place||'举办地点待公布')}</div></div><h3 class="detail-section-title">投稿时间线 <small>北京时间 UTC+8</small></h3><ul class="detail-timeline">${e.deadlines.length ? e.deadlines.map(d => `<li><div><strong>${typeName(d)}</strong>${d.note?`<small>${esc(d.note)}</small>`:''}</div><div>${Number.isFinite(d.ts)?esc(cst(d.ts)):'待公布'}<small>${esc(d.local||'')} ${esc(d.timezone||'')}</small></div></li>`).join('') : '<li>投稿时间待公布</li>'}</ul><div class="detail-actions">${validUrl(e.link)?`<a class="primary-btn" href="${esc(e.link)}" target="_blank" rel="noopener">会议官网 ${icon('link')}</a>`:''}<button class="secondary-btn" data-save="${esc(id)}" aria-pressed="${saved}">${icon('star')} ${saved?'已收藏':'收藏会议'}</button></div>`;
     if (!$('detail').open) $('detail').showModal();
   }
@@ -215,6 +241,7 @@
     $('rank').value='';$('category').value='';$('search').value='';
   }
   function zoomBy(multiplier) {
+    if (globeView?.available) { globeView.zoom(multiplier); return; }
     const anchor=openCity && cityMap.get(openCity);
     if (anchor && multiplier>1) center=geo.project(anchor.lon,anchor.lat);
     zoom=Math.min(8,Math.max(1,zoom*multiplier));
@@ -235,7 +262,9 @@
       case 'pop-close':$('city-pop').hidden=true;openCity=null;break;
       case 'zoom-in':zoomBy(1.65);break;
       case 'zoom-out':zoomBy(1/1.65);break;
-      case 'map-reset':zoom=1;center=[500,223];renderMap([...new Set(rows.map(r=>r.e))]);break;
+      case 'map-reset':if(globeView?.available){globeView.reset();break;}zoom=1;center=[500,223];renderMap([...new Set(rows.map(r=>r.e))]);break;
+      case 'globe-motion':globeView?.toggleRotation();break;
+      case 'focus-deadline':if(globeView?.available)globeView.focusNearest();else if(spotlight?.e.points.length){const p=spotlight.e.points[0];showCity(p.lon.toFixed(2)+','+p.lat.toFixed(2));zoomBy(2);}break;
       case 'nav-all':case 'nav-fav':state.favOnly=action.id==='nav-fav';resetFilters();render();break;
       case 'mode-meet':case 'mode-deadline':state.mode=action.id==='mode-meet'?'meet':'deadline';state.month=0;state.limit=32;populateYears();render();break;
       case 'clear-filter':resetFilters();render();break;
@@ -266,6 +295,18 @@
   $('search').addEventListener('input',()=>{state.query=$('search').value;state.limit=32;render();});
   $('category').insertAdjacentHTML('beforeend',Object.entries(fields).map(([key,name])=>`<option value="${key}">${name}</option>`).join(''));
   if(data.updatedAt && Number.isFinite(Date.parse(data.updatedAt))) $('updated').textContent='数据更新 '+cst(data.updatedAt).slice(0,10);
+  if (window.CCFGlobe) {
+    globeView = new CCFGlobe($('globe'), {
+      onSelect: showCity,
+      onUnavailable: () => { if (rows.length) renderMap([...new Set(rows.map(r=>r.e))]); }
+    });
+  } else {
+    $('map').removeAttribute('hidden');$('globe').hidden=true;
+    $('map-stage').dataset.renderer='map';
+    $('globe-status').textContent='当前设备使用平面地图';
+    $('globe-hint').textContent='放大后可拖动地图';
+    $('globe-motion').hidden=true;
+  }
   populateYears();render();
   setInterval(()=>{
     const now=Date.now();

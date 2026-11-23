@@ -6,6 +6,7 @@
   <title>CCF Circuit · 全球会议赛历</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23141f25'/%3E%3Cpath d='M6 10h10l-4 5H2zm14 0h10l-4 5H16zM12 17h10l-4 5H8z' fill='%23c3f65f'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./globe.css">
 </head>
 <body>
 <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
@@ -28,37 +29,44 @@
 </div></header>
 <main class="wrap" id="top">
   <section class="intro">
-    <div><h1 id="title">全球会议赛历</h1><p>沿着世界地图，追踪每一站计算机会议与投稿截止时间。</p></div>
+    <div><p class="intro-kicker">CCF CONFERENCE ATLAS</p><h1 id="title">全球会议赛历</h1><p>在地球上探索会议地点，追踪每一轮投稿截止时间。</p></div>
     <label class="year-select"><svg><use href="#i-calendar"/></svg><span class="year-label">赛季</span><select aria-label="选择赛季年份" id="year"></select></label>
   </section>
+  <div class="filters atlas-filters"><label class="search"><svg><use href="#i-search"/></svg><input type="search" id="search" placeholder="搜索会议、城市或国家" aria-label="搜索会议、城市或国家"></label><label class="select"><svg><use href="#i-tune"/></svg><select id="rank" aria-label="CCF 等级"><option value="">全部 CCF 等级</option><option value="A">CCF A</option><option value="B">CCF B</option><option value="C">CCF C</option></select></label><label class="select"><select id="category" aria-label="学科方向"><option value="">全部学科方向</option></select></label><div class="seg" aria-label="日程排序及年份口径"><button id="mode-meet" aria-pressed="true">按开会日期</button><button id="mode-deadline" aria-pressed="false">按投稿日期</button></div></div>
   <section class="feature" aria-label="赛季概览">
     <article class="map-card">
-      <div class="map-head"><h2><svg><use href="#i-globe"/></svg>赛季地图</h2><span id="map-count" class="map-count"></span></div>
+      <div class="map-head"><h2><svg><use href="#i-globe"/></svg>会议地球</h2><span id="map-count" class="map-count"></span></div>
       <div class="map-stage" id="map-stage">
-        <svg id="map" viewBox="0 18 1000 410" preserveAspectRatio="xMidYMid meet" role="group" aria-label="会议举办地地图，可选择城市查看会议">
+        <div id="globe" aria-label="交互地球：拖动旋转，滚轮或双指缩放，方向键旋转" tabindex="0"></div>
+        <svg class="globe-connectors" aria-hidden="true"></svg>
+        <div id="globe-labels" aria-label="地球上的投稿倒计时"></div>
+        <p id="globe-status" role="status">正在展开地球…</p>
+        <svg id="map" hidden viewBox="0 18 1000 410" preserveAspectRatio="xMidYMid meet" role="group" aria-label="会议举办地平面地图，可选择城市查看会议">
           <defs><pattern id="mapgrid" width="62.5" height="62.5" patternUnits="userSpaceOnUse"><path d="M62.5 0H0v62.5" fill="none" stroke="#7597a8" stroke-width=".8" opacity=".2"/></pattern></defs>
           <g id="geography"><rect x="-300" y="-300" width="1600" height="1100" fill="url(#mapgrid)"/><image id="land" href="./world.svg" width="1000" height="500"/><g id="markers"></g></g>
         </svg>
         <div id="city-pop" class="city-pop" hidden></div>
-        <div class="map-tools"><button id="zoom-in" aria-label="放大地图">+</button><button id="zoom-out" aria-label="缩小地图">−</button><button id="map-reset" aria-label="重置地图"><svg><use href="#i-focus"/></svg></button></div>
+        <div class="globe-hint" id="globe-hint">拖动旋转 · 滚轮 / 双指缩放</div>
+        <div class="map-tools"><button id="globe-motion" aria-label="暂停自动旋转" title="暂停自动旋转" aria-pressed="true">Ⅱ</button><button id="zoom-in" aria-label="放大地球">+</button><button id="zoom-out" aria-label="缩小地球">−</button><button id="map-reset" aria-label="重置视角" title="重置视角"><svg><use href="#i-focus"/></svg></button></div>
       </div>
-      <div class="map-foot"><div><span class="legend-dot"></span>举办城市 <span class="legend-dot hot"></span>最近投稿</div><span id="unmapped"></span></div>
+      <div class="map-foot"><div><span class="legend-dot"></span>举办城市 <span class="legend-dot hot"></span>最近截稿</div><span id="unmapped"></span></div>
     </article>
-    <article class="spotlight"><div class="spot-top"><h2><svg><use href="#i-clock"/></svg>最近投稿截止</h2><span class="checker" aria-hidden="true"></span></div><div id="spot-body"></div></article>
+    <aside class="deadline-rail">
+      <article class="spotlight"><div class="spot-top"><h2><svg><use href="#i-clock"/></svg>最近投稿截止</h2><span class="live-label">UP NEXT</span></div><div id="spot-body"></div><button id="focus-deadline" class="focus-deadline"><svg><use href="#i-focus"/></svg>在地球上定位</button></article>
+      <section class="upcoming-panel" aria-labelledby="upcoming-title"><div class="upcoming-heading"><h2 id="upcoming-title">接下来的投稿</h2><span>北京时间</span></div><div id="upcoming-list"></div></section>
+    </aside>
   </section>
   <section class="agenda" id="agenda">
     <div class="agenda-title"><div><h2 id="agenda-label">赛季日程</h2><span id="result-count" aria-live="polite"></span></div>
-      <div class="seg" aria-label="日程排序及年份口径"><button id="mode-meet" aria-pressed="true">按开会日期</button><button id="mode-deadline" aria-pressed="false">按投稿日期</button></div>
     </div>
-    <div class="filters"><label class="search"><svg><use href="#i-search"/></svg><input type="search" id="search" placeholder="搜索会议、城市或国家" aria-label="搜索会议、城市或国家"></label><label class="select"><svg><use href="#i-tune"/></svg><select id="rank" aria-label="CCF 等级"><option value="">全部 CCF 等级</option><option value="A">CCF A</option><option value="B">CCF B</option><option value="C">CCF C</option></select></label><label class="select"><select id="category" aria-label="学科方向"><option value="">全部学科方向</option></select></label></div>
     <div class="months" id="months" aria-label="月份筛选"></div>
     <div id="schedule"></div>
     <button id="more" class="more" hidden>显示更多会议</button>
   </section>
 </main>
-<footer class="wrap"><span>CCF Circuit</span><span id="updated"></span><a target="_blank" rel="noopener" href="https://ccfddl.com/">数据来自 CCFDDL</a></footer>
+<footer class="wrap"><span>CCF Circuit</span><span id="updated"></span><a target="_blank" rel="noopener" href="https://ccfddl.com/">数据来自 CCFDDL</a><a class="earth-credit" target="_blank" rel="noopener" href="https://science.nasa.gov/earth/earth-observatory/the-blue-marble-true-color-global-imagery-at-1km-resolution/">Earth · NASA</a></footer>
 <dialog id="detail" aria-labelledby="detail-title"><div id="detail-content"></div></dialog>
 <p id="boot-error" class="wrap" role="alert" hidden></p>
 <noscript>请启用 JavaScript 以查看交互地图和会议倒计时。</noscript>
-<script src="./conferences.js"></script><script src="./venues.js"></script><script src="./app.js"></script>
+<script src="./conferences.js"></script><script src="./venues.js"></script><script src="./vendor/globe.gl/globe.gl.min.js"></script><script src="./globe-view.js"></script><script src="./app.js"></script>
 </body></html>
