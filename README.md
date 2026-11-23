@@ -2,12 +2,13 @@
 
 Explore CCF A, B and C conferences on an interactive 3D globe and track submission deadlines. The site opens with submission deadlines filtered to **Artificial Intelligence** and **CCF A**. The initial year contains the next future deadline within those filters, using UTC+8; if none is announced, it falls back to the current year. Change the year, month, subject or rank, switch to conference dates when needed, and save conferences in your browser. Resetting the filters clears the subject and rank restrictions so all conferences can be explored.
 
-The English interface uses a muted red, white and blue palette. Red highlights the next deadline; blue identifies other locations and controls.
+The English interface uses a muted red, white and blue palette. Conference cards take their accents from the corresponding official logos; an emphasized outline and ring identify the next deadline.
 
 ## Globe interaction
 
 - Drag to rotate. Use the mouse wheel, a two-finger gesture or the zoom buttons to change scale. With keyboard focus on the globe, use the arrow keys to rotate and `+` / `-` to zoom.
 - City markers use geographic coordinates. Floating labels show the next submission deadline for each city within the active filters. Labels avoid one another and disappear on the far side of the Earth.
+- Floating cards pair a local official conference logo with a large countdown. Card accents follow the logo color, with light backgrounds and dark text for contrast. When a verified logo is unavailable or fails to load, the card shows the conference abbreviation instead. Sources are documented in `assets/conferences/README.md`.
 - The nearest future deadline has a highlighted marker, ring and label. The sidebar shows its full countdown and the following three submission entries. **Locate on globe** brings its location into view.
 - “Next” means the **earliest future submission deadline within the active filters**, including abstract and paper deadlines. It does not mean the next conference date. No countdown is shown when a future deadline has not been announced.
 - Automatic rotation pauses on hover, during keyboard reading and after manual interaction. The rotation button can resume it. The system’s reduced-motion preference disables automatic rotation and repeating rings by default.
@@ -30,6 +31,8 @@ bash run.sh serve
 
 Open http://127.0.0.1:8769 in your browser. To use another port, run `bash run.sh serve 8000`.
 
+After syncing the data, `bash run.sh build` prepares the deployable website in `public/`. Local scripts, styles and data URLs include content hashes so updates load fresh resources instead of mixing releases from browser caches.
+
 The Earth texture, renderer and conference snapshot are served locally. After generating the snapshot, the site can be previewed offline over HTTP. Use the local server rather than opening the HTML file directly, since browser security rules can prevent WebGL textures from loading from file URLs.
 
 ## Validation
@@ -50,6 +53,8 @@ These checks cover real pointer input, deadline rollover, responsive layouts and
 - `globe.css` and `style.css`: globe, countdown and schedule presentation.
 - `app.js`: filters, conference details, saved conferences and date logic.
 - `venues.js`: city aliases and coordinates.
+- `conference-brands.js`: verified logo files and conference colors.
+- `build_site.py`: static publication bundle and resource versioning.
 - `sync_ccf.py`: CCFDDL snapshot generation.
 
 ## Updates and deployment

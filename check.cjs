@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const window = {};
 const context = {window, Intl, Date};
-for (const file of ['conferences.js','venues.js']) {
+for (const file of ['conferences.js','venues.js','conference-brands.js']) {
   vm.runInNewContext(fs.readFileSync(file,'utf8'),context,{filename:file});
 }
 const {events} = window.CCF_DATA;
@@ -23,9 +23,15 @@ for (const e of events) {
     assert(Math.abs(p.lat)<=90 && Math.abs(p.lon)<=180);
   }
 }
+assert(window.CCF_BRANDS?.ACL && window.CCF_BRANDS?.ICML, 'Missing default conference branding');
+for (const [title, brand] of Object.entries(window.CCF_BRANDS)) {
+  assert(/^\.\/assets\/conferences\//.test(brand.logo), 'Conference logo must be local: '+title);
+  assert(fs.existsSync(brand.logo.split(/[?#]/)[0]), 'Missing conference logo: '+title);
+  assert(/^#[0-9a-f]{6}$/i.test(brand.color), 'Invalid conference brand color: '+title);
+}
 const html = fs.readFileSync('index.html','utf8');
 for (const [,path] of html.matchAll(/(?:href|src)="\.\/([^"]+)"/g)) {
-  assert(fs.existsSync(path),'Missing local asset '+path);
+  assert(fs.existsSync(path.split(/[?#]/)[0]),'Missing local asset '+path);
 }
 console.log('Validated '+events.length+' meeting editions.');
 
@@ -68,6 +74,10 @@ if (process.argv.includes('--browser')) {
       const defaultYear = new Date((futureAI.length ? Math.min(...futureAI) : Date.now()) + 8 * 3600000).getUTCFullYear();
       verify(get('year').value === String(defaultYear), 'Default year must contain the next AI CCF A deadline');
       verify(get('rank').value === 'A' && get('category').value === 'AI', 'Initial filters must be CCF A and Artificial Intelligence');
+      const logo = document.querySelector('.globe-tag.hot .globe-tag-logo');
+      verify(logo && new URL(logo.src).pathname.includes('/assets/conferences/'), 'Expected a local conference logo');
+      await until(() => logo.complete && logo.naturalWidth > 0, 'Conference logo did not load');
+      verify(parseFloat(getComputedStyle(document.querySelector('.globe-tag.hot .globe-countdown')).fontSize) >= 22, 'Floating countdown is too small');
       change('rank', '');
       change('category', '');
       const globe = window.__qaGlobe.globe;

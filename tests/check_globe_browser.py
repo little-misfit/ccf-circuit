@@ -120,6 +120,31 @@ def main():
               and page.locator('#year').input_value() == str(default_year))
         check('initial filters are CCF A and Artificial Intelligence', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == 'AI')
         nearest(page, 'nearest future deadline respects the initial AI and CCF A filters')
+        brand_cards = []
+        for conference in ['ACL', 'ICML']:
+            page.locator('#search').fill(conference)
+            page.wait_for_timeout(1000)
+            card = page.locator('.globe-tag.hot:not([hidden])').first
+            brand = card.evaluate("""(card, conference) => {
+              const logo=card.querySelector('.globe-tag-logo');
+              const style=getComputedStyle(card);
+              return {heading:card.querySelector('.globe-tag-heading').textContent,
+                source:logo?.currentSrc || logo?.src || '', loaded:!!logo && logo.complete && logo.naturalWidth>0,
+                local:!!logo && new URL(logo.src).origin===location.origin,
+                expectedSource:new URL(CCF_BRANDS[conference].logo,document.baseURI).href,
+                expectedAccent:CCF_BRANDS[conference].color,
+                accent:style.getPropertyValue('--tag-accent').trim(), border:style.borderTopColor,
+                surface:style.backgroundColor, ink:getComputedStyle(card.querySelector('.globe-countdown')).color};
+            }""", conference)
+            check(f'{conference}: official local logo and brand accent are applied', brand['loaded'] and brand['local']
+                  and brand['source'] == brand['expectedSource'] and brand['heading'].startswith(conference)
+                  and brand['accent'].lower() == brand['expectedAccent'].lower(), brand)
+            brand_cards.append(brand)
+        check('ACL and ICML apply distinct conference palettes to the highlighted card',
+              bool(brand_cards[0]['accent']) and brand_cards[0]['accent'] != brand_cards[1]['accent']
+              and brand_cards[0]['source'] != brand_cards[1]['source']
+              and any(brand_cards[0][key] != brand_cards[1][key] for key in ['border', 'surface', 'ink']), brand_cards)
+        page.locator('#search').fill('')
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
         page.wait_for_timeout(1000)
         pause(page)
@@ -214,6 +239,8 @@ def main():
             check(f'{width}px: no page overflow or overlapping floating cards', not page.evaluate('document.documentElement.scrollWidth>innerWidth') and not overlap and fits, boxes)
             check(f'{width}px: nearest deadline remains visible and readable', page.locator('.globe-tag.hot:not([hidden])').count() > 0)
             check(f'{width}px: English labels fit their cards', page.locator('.globe-tag:not([hidden])').evaluate_all('es=>es.every(e=>e.scrollWidth<=e.clientWidth+1)'))
+            timer_sizes = page.locator('.globe-tag:not([hidden]) .globe-countdown').evaluate_all('es=>es.map(e=>parseFloat(getComputedStyle(e).fontSize))')
+            check(f'{width}px: floating countdown text is enlarged', bool(timer_sizes) and min(timer_sizes) >= (22 if width >= 768 else 19), timer_sizes)
             if width in [1440, 390]:
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
                 page.screenshot(path=str(output / f'globe-qa-{width}.png'), full_page=True)
@@ -226,6 +253,16 @@ def main():
         page.evaluate('__qaGlobe.globe.renderer().forceContextLoss()')
         page.wait_for_function("document.querySelector('#map-stage').dataset.renderer==='map'")
         check('WebGL context loss restores usable map markers', page.locator('#map').is_visible() and page.locator('#markers [data-city]').count() > 0)
+        context.close()
+
+        context = browser.new_context(viewport={'width': 390, 'height': 844})
+        context.add_init_script(CAPTURE)
+        context.route(re.compile(r'/assets/conferences/acl\.svg(?:\?.*)?$'), lambda route: route.abort())
+        page = context.new_page(); page.goto(args.url, wait_until='networkidle'); ready(page); pause(page)
+        page.locator('#rank').select_option('A')
+        check('failed logo remains a readable monogram after rendering again',
+              page.locator('.globe-tag.hot .globe-tag-monogram').is_visible()
+              and not page.locator('.globe-tag.hot .globe-tag-logo').is_visible())
         context.close()
 
         context = browser.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
@@ -261,13 +298,21 @@ def main():
             later = (now + timedelta(days=40)).isoformat().replace('+00:00', 'Z')
             records[0]['deadlines'].append({'at':later,'type':'paper','local':later,'timezone':'UTC','round':1,'note':''})
             route.fulfill(content_type='text/javascript',body='window.CCF_DATA='+json.dumps({'events':records,'updatedAt':now.isoformat()})+';')
-        context.route('**/conferences.js',fixture)
+        context.route(re.compile(r'/conferences\.js(?:\?.*)?$'),fixture)
         page=context.new_page();page.goto(args.url);ready(page);pause(page)
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
         page.locator('#mode-meet').click(); page.locator('#year').select_option('2027')
         check('multiple conferences in one city share a geographic location', page.evaluate("__qaGlobe.locations.find(p=>p.name==='Paris').events.length===2"))
         check('unlocated conference stays in the schedule with a notice', page.locator('#schedule .event').count()==5 and '1' in page.locator('#unmapped').text_content())
         check('fixture starts with the earliest future deadline',page.locator('.spot-name').get_attribute('data-open')=='0')
+        fallback = page.locator('.globe-tag.hot').evaluate("""card => {
+          const logo=card.querySelector('.globe-tag-logo'), monogram=card.querySelector('.globe-tag-monogram');
+          return {heading:card.querySelector('.globe-tag-heading').textContent,
+            monogram:monogram?.textContent.trim(), visible:!!monogram && monogram.getClientRects().length>0 && getComputedStyle(monogram).display!=='none',
+            noBrokenImage:!logo || !logo.getClientRects().length || logo.complete && logo.naturalWidth>0};
+        }""")
+        check('unknown conference uses a readable monogram without a broken image', fallback['heading'].startswith('First')
+              and fallback['monogram'] and fallback['visible'] and fallback['noBrokenImage'], fallback)
         page.locator('#mode-deadline').click()
         later = datetime.fromisoformat(page.evaluate("CCF_DATA.events[0].deadlines[1].at").replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=8)))
         page.locator('#year').select_option(str(later.year))

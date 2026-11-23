@@ -1,6 +1,17 @@
 'use strict';
 (() => {
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+  const brandFor = point => {
+    if (!point.next) return null;
+    const title = point.next.title.toUpperCase();
+    return window.CCF_BRANDS?.[`${title}:${point.next.year}`] || window.CCF_BRANDS?.[title] || null;
+  };
+  const rgb = color => color.match(/[a-f\d]{2}/gi).map(value => parseInt(value, 16));
+  const mix = (color, target, amount) => {
+    const from = rgb(color), to = rgb(target);
+    return '#' + from.map((value, i) => Math.round(value + (to[i] - value) * amount).toString(16).padStart(2, '0')).join('');
+  };
+  const accentFor = point => brandFor(point)?.color || '#526d90';
   const formatCountdown = at => {
     const seconds = Math.max(0, Math.floor((at - Date.now()) / 1000));
     const days = Math.floor(seconds / 86400);
@@ -39,14 +50,14 @@
           .pointLat('lat').pointLng('lng')
           .pointAltitude(p => p.hot ? .035 : .009)
           .pointRadius(p => p.hot ? .6 : .3)
-          .pointColor(p => p.hot ? '#e2a2aa' : p.next ? '#cfddf1' : '#8296b4')
+          .pointColor(p => p.next ? mix(accentFor(p), '#ffffff', p.hot ? .45 : .65) : '#8296b4')
           .pointsMerge(false).pointResolution(10).pointsTransitionDuration(0)
           .pointLabel(() => '')
           .onPointClick(p => { this.stopRotation(); options.onSelect(p.key); })
           .onGlobeClick((_, event) => this.selectNearbyLocation(event))
           .onPointHover(p => { this.hoverKey = p?.key || null; this.layoutLabels(); })
           .ringLat('lat').ringLng('lng')
-          .ringColor(() => t => `rgba(226,162,170,${(1 - t) * .8})`)
+          .ringColor(p => t => `rgba(${rgb(mix(accentFor(p), '#ffffff', .55)).join(',')},${(1 - t) * .8})`)
           .ringMaxRadius(3.4).ringPropagationSpeed(1.5).ringRepeatPeriod(1700)
           .onZoom(() => { this.layoutLabels(); this.updateZoomButtons(); });
         const material = this.globe.globeMaterial();
@@ -174,18 +185,43 @@
           const button = document.createElement('button');
           button.className = 'globe-tag';
           button.hidden = true;
+          const header = document.createElement('span'); header.className = 'globe-tag-header';
+          const logoFrame = document.createElement('span'); logoFrame.className = 'globe-tag-logo-frame';
+          const logo = document.createElement('img'); logo.className = 'globe-tag-logo'; logo.alt = ''; logo.hidden = true;
+          const monogram = document.createElement('span'); monogram.className = 'globe-tag-monogram';
+          logoFrame.setAttribute('aria-hidden', 'true');
+          logoFrame.append(logo, monogram);
+          logo.addEventListener('error', () => { logo.dataset.failed = logo.getAttribute('src'); logo.hidden = true; monogram.hidden = false; });
+          const identity = document.createElement('span'); identity.className = 'globe-tag-identity';
           const heading = document.createElement('span'); heading.className = 'globe-tag-heading';
           const location = document.createElement('span'); location.className = 'globe-tag-location';
           const timer = document.createElement('span'); timer.className = 'globe-countdown';
           const kind = document.createElement('span'); kind.className = 'globe-tag-kind';
-          button.append(heading, location, timer, kind);
+          identity.append(heading, location);
+          header.append(logoFrame, identity);
+          button.append(header, timer, kind);
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           this.layer.append(button); this.connectors.append(line);
-          entry = { button, heading, location, timer, kind, line };
+          entry = { button, heading, location, timer, kind, line, logo, monogram };
           this.labels.set(p.key, entry);
         }
         entry.point = p;
+        const brand = brandFor(p), accent = accentFor(p);
+        for (const [name, value] of Object.entries({
+          accent, edge: mix(accent, '#73809a', .3), ink: mix(accent, '#182338', .42), surface: mix(accent, '#ffffff', .94),
+          border: mix(accent, '#ffffff', .55), light: mix(accent, '#ffffff', .67)
+        })) entry.button.style.setProperty('--tag-' + name, value);
+        entry.button.style.setProperty('--tag-logo-background', brand?.background || '#ffffff');
+        entry.line.style.stroke = mix(accent, '#ffffff', .65);
+        entry.monogram.textContent = p.next ? p.next.title.slice(0, 5) : 'CITY';
+        entry.logo.hidden = !brand?.logo || entry.logo.dataset.failed === brand.logo;
+        entry.monogram.hidden = !entry.logo.hidden;
+        if (brand?.logo) {
+          if (entry.logo.getAttribute('src') !== brand.logo) entry.logo.src = brand.logo;
+        } else entry.logo.removeAttribute('src');
+        entry.button.dataset.brand = brand ? p.next.title.toUpperCase() : '';
         entry.button.classList.toggle('hot', p.hot);
+        entry.button.classList.toggle('has-deadline', Boolean(p.next));
         entry.button.dataset.city = p.key;
         if (p.next) entry.button.dataset.open = p.next.id;
         else delete entry.button.dataset.open;
@@ -276,9 +312,9 @@
       this.stage.classList.toggle('compact-globe', width < 600);
       const camera = this.globe.camera().position;
       const radius = this.globe.getGlobeRadius();
-      const maxLabels = width < 600 ? 3 : 5;
-      const tagWidth = width < 600 ? 156 : 190;
-      const tagHeight = width < 600 ? 90 : 96;
+      const maxLabels = width < 600 ? 2 : 5;
+      const tagWidth = width < 600 ? 212 : 240;
+      const tagHeight = width < 600 ? 118 : 126;
       const occupied = [];
       const candidates = [...this.locations].filter(p => p.next || p.key === this.hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));

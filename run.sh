@@ -7,5 +7,6 @@ case "${1:-serve}" in
     if [ ! -f conferences.js ]; then python3 sync_ccf.py --output conferences.js; fi
     python3 -m http.server "${2:-8769}" --bind 127.0.0.1 ;;
   check) "${NODE_BIN:-node}" check.cjs ;;
-  *) echo 'Usage: bash run.sh [sync|serve [port]|check]' >&2; exit 2 ;;
+  build) python3 build_site.py ;;
+  *) echo 'Usage: bash run.sh [sync|serve [port]|check|build]' >&2; exit 2 ;;
 esac
