@@ -50,7 +50,9 @@
       this.visible = true;
       this.highlight = null;
       this.hoverKey = null;
+      this.hoveredCardKey = null;
       this.externalHoverKey = null;
+      this.promotedKey = null;
       this.pointers = new Map();
       this.prefix = `ccf-${++instanceCount}-`;
       this.layer = document.getElementById('globe-labels');
@@ -97,7 +99,7 @@
         });
         this.intersectionObserver.observe(this.stage);
         this.stage.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') { this.hovered = true; this.syncMotion(); } });
-        this.stage.addEventListener('pointerleave', () => { this.hovered = false; this.hoverKey = null; this.syncMotion(); });
+        this.stage.addEventListener('pointerleave', () => { this.hovered = false; this.hoverKey = null; this.hoveredCardKey = null; this.promotedKey = null; this.syncMotion(); });
         this.stage.addEventListener('focusin', e => { this.focused = e.target.matches(':focus-visible'); this.syncMotion(); });
         this.stage.addEventListener('focusout', e => { this.focused = this.stage.contains(e.relatedTarget) && e.relatedTarget.matches(':focus-visible'); this.syncMotion(); });
         document.addEventListener('visibilitychange', () => this.syncMotion());
@@ -121,7 +123,7 @@
     get offset() { return [0, this.width < 600 ? 90 : 0]; }
     get globeRadius() { return this.height * .4 * this.view.scale; }
     get rippleRadius() { return clamp(this.globeRadius * .17, 24, 54); }
-    get activeHoverKey() { return this.hoverKey || this.externalHoverKey; }
+    get activeHoverKey() { return this.hoveredCardKey || this.hoverKey || this.externalHoverKey; }
 
     resize() {
       if (!this.available) return;
@@ -214,10 +216,35 @@
     stopRotation() { this.playing = false; this.syncMotion(); }
     toggleRotation() { this.playing = !this.playing; this.syncMotion(); }
 
+    syncHoverStyles() {
+      const key = this.activeHoverKey;
+      for (const [k, entry] of this.labels) {
+        const hovered = k === key;
+        entry.pin.classList.toggle('hovered', hovered);
+        entry.line.classList.toggle('hovered', hovered);
+      }
+    }
+
+    updateHoverState(prop, nextKey) {
+      const normalized = nextKey || null;
+      if (this[prop] === normalized) return;
+      this[prop] = normalized;
+      const active = this.activeHoverKey;
+      let needsLayout = false;
+      if (normalized && prop !== 'hoveredCardKey' && this.labels.get(normalized)?.button.hidden) {
+        this.promotedKey = normalized;
+        needsLayout = true;
+      } else if (this.promotedKey && active !== this.promotedKey) {
+        this.promotedKey = null;
+        needsLayout = true;
+      }
+      if (needsLayout) this.layoutLabels();
+      else this.syncHoverStyles();
+    }
+
     highlightCity(key) {
-      if (!this.available || this.externalHoverKey === (key || null)) return;
-      this.externalHoverKey = key || null;
-      this.layoutLabels();
+      if (!this.available) return;
+      this.updateHoverState('externalHoverKey', key);
     }
 
     focusCity(key) {
@@ -244,7 +271,7 @@
         if (!previous) {
           const point = this.nearbyLocation(event);
           this.canvas.style.cursor = point ? 'pointer' : 'grab';
-          if ((point?.key || null) !== this.hoverKey) { this.hoverKey = point?.key || null; this.layoutLabels(); }
+          this.updateHoverState('hoverKey', point?.key || null);
           return;
         }
         const current = { x: event.clientX, y: event.clientY };
@@ -302,6 +329,9 @@
       this.stage.dataset.mode = this.mode;
       this.locations = locations.map(p => ({ ...p, markerId: this.prefix + p.key.replace(/[^\w-]/g, '_') }));
       const keys = new Set(locations.map(p => p.key));
+      if (this.promotedKey && !keys.has(this.promotedKey)) this.promotedKey = null;
+      if (this.hoveredCardKey && !keys.has(this.hoveredCardKey)) this.hoveredCardKey = null;
+      if (this.hoverKey && !keys.has(this.hoverKey)) this.hoverKey = null;
       for (const [key, entry] of this.labels) {
         if (!keys.has(key)) { entry.button.remove(); entry.line.remove(); entry.anchor.remove(); entry.ripple.remove(); entry.pin.remove(); this.labels.delete(key); }
       }
@@ -327,8 +357,10 @@
           identity.append(heading, location);
           header.append(logoFrame, identity);
           button.append(header, timer, kind);
-          button.addEventListener('pointerenter', () => { this.hoverKey = p.key; this.layoutLabels(); });
-          button.addEventListener('pointerleave', () => { if (this.hoverKey === p.key) { this.hoverKey = null; this.layoutLabels(); } });
+          button.addEventListener('pointerenter', () => this.updateHoverState('hoveredCardKey', p.key));
+          button.addEventListener('pointerleave', () => {
+            if (this.hoveredCardKey === p.key) this.updateHoverState('hoveredCardKey', null);
+          });
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           const anchor = document.createElement('span'); anchor.className = 'globe-anchor';
           anchor.style.positionAnchor = `--cobe-${p.markerId}`;
@@ -491,8 +523,9 @@
         return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : Math.max(10, pinSize / 2 + 6) };
       }).filter(point => point.visible);
       const occupied = [];
-      const candidates = [...this.locations].filter(p => autoCardFor(p) || this.locations.length === 1 || p.key === hoverKey)
-        .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === hoverKey) - Number(a.key === hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
+      const promoteKey = this.promotedKey;
+      const candidates = [...this.locations].filter(p => autoCardFor(p) || this.locations.length === 1 || p.key === promoteKey)
+        .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === promoteKey) - Number(a.key === promoteKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
       const visible = new Set();
       for (const p of candidates) {
         if (occupied.length >= maxLabels) break;
