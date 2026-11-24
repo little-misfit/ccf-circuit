@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f8f9fb"><meta name="description" content="CCF-Schedule: explore computer science conferences around the world and track submission deadlines.">
+  <meta name="theme-color" content="#f6f8fb"><meta name="description" content="CCF-Schedule: explore computer science conferences around the world and track submission deadlines.">
   <title>CCF-Schedule</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23f8f9fb'/%3E%3Cg fill='none' stroke='%23536b88' stroke-width='1.5'%3E%3Ccircle cx='16' cy='16' r='11'/%3E%3Cellipse cx='16' cy='16' rx='5' ry='11'/%3E%3Cpath d='M5 16h22'/%3E%3C/g%3E%3Ccircle cx='24' cy='9' r='3' fill='%23a45f68'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
@@ -18,21 +18,43 @@
   <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.8 5.8 6.4.9-4.6 4.5 1.1 6.3L12 17.5l-5.7 3 1.1-6.3-4.6-4.5 6.4-.9Z"/></symbol>
   <symbol id="i-tune" viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
   <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v5m10-5v5M3 11h18"/></symbol>
+  <symbol id="i-calendar-plus" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4m10-4v4M3 10h18M12 13v5m-2.5-2.5h5"/></symbol>
   <symbol id="i-focus" viewBox="0 0 24 24"><path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/><circle cx="12" cy="12" r="2"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9m-2-8H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.9 4.9l1.8 1.8m10.6 10.6 1.8 1.8M2 12h2.5M19.5 12H22M4.9 19.1l1.8-1.8m10.6-10.6 1.8-1.8"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.2 14.8A8.5 8.5 0 0 1 9.2 3.8a8.5 8.5 0 1 0 11 11Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
 </defs></svg>
 <header class="top"><div class="top-inner wrap">
   <a class="brand" href="#top" aria-label="CCF-Schedule home"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><ellipse cx="16" cy="16" rx="5.5" ry="12"/><path d="M4 16h24"/><circle class="logo-accent" cx="25" cy="8" r="3.5"/></svg><span>CCF-Schedule</span></a>
   <nav aria-label="Main navigation"><button id="nav-all" aria-pressed="true">Overview</button><button id="nav-fav" aria-pressed="false">Saved <span id="fav-count">0</span></button></nav>
-  <a class="source-link" target="_blank" rel="noopener" href="https://ccfddl.com/">CCFDDL <svg><use href="#i-link"/></svg></a>
+  <div class="top-actions">
+    <button id="theme-toggle" class="icon-btn" aria-label="Switch to dark theme" title="Switch to dark theme"><svg><use href="#i-moon"/></svg></button>
+    <a class="source-link" target="_blank" rel="noopener" href="https://ccfddl.com/">CCFDDL <svg><use href="#i-link"/></svg></a>
+  </div>
 </div></header>
 <main class="wrap" id="top">
   <section class="intro">
-    <div><p class="intro-kicker">COMPUTER SCIENCE CONFERENCES</p><h1 id="title">CCF-Schedule</h1><p>Explore conferences worldwide. Keep your next deadline in view.</p></div>
+    <div class="intro-copy"><p class="intro-kicker">COMPUTER SCIENCE CONFERENCES</p><h1 id="title">CCF-Schedule</h1><p>Explore conferences worldwide. Keep your next deadline in view.</p></div>
     <label class="year-select"><svg><use href="#i-calendar"/></svg><span class="year-label">Year</span><select aria-label="Select year" id="year"></select></label>
   </section>
-  <div class="filters atlas-filters"><label class="search"><svg><use href="#i-search"/></svg><input type="search" id="search" placeholder="Search conferences, cities or countries" aria-label="Search conferences, cities or countries"></label><label class="select"><svg><use href="#i-tune"/></svg><select id="rank" aria-label="CCF rank"><option value="">All CCF ranks</option><option value="A">CCF A</option><option value="B">CCF B</option><option value="C">CCF C</option></select></label><label class="select"><select id="category" aria-label="Research area"><option value="">All research areas</option></select></label><div class="seg" aria-label="Schedule date basis"><button id="mode-deadline" aria-pressed="true">Submission deadlines</button><button id="mode-meet" aria-pressed="false">Conference dates</button></div></div>
+  <div class="filters atlas-filters">
+    <label class="search"><svg><use href="#i-search"/></svg><input type="search" id="search" placeholder="Search conferences, cities or countries" aria-label="Search conferences, cities or countries"></label>
+    <label class="select select-rank"><svg><use href="#i-tune"/></svg><select id="rank" aria-label="CCF rank"><option value="">All CCF ranks</option><option value="A">CCF A</option><option value="B">CCF B</option><option value="C">CCF C</option></select></label>
+    <label class="select select-category"><select id="category" aria-label="Research area"><option value="">All research areas</option></select></label>
+    <div class="seg" aria-label="Schedule date basis"><button id="mode-deadline" aria-pressed="true">Submission deadlines</button><button id="mode-meet" aria-pressed="false">Conference dates</button></div>
+  </div>
+  <div class="active-bar" id="active-bar">
+    <div class="active-chips" id="active-chips" aria-label="Active filters"></div>
+    <div class="view-controls">
+      <button id="toggle-passed" class="chip-toggle" aria-pressed="false">Hide passed</button>
+      <label class="tz-select" title="Display timezone"><svg><use href="#i-clock"/></svg><select id="tz-select" aria-label="Display timezone"><option value="UTC+8" selected>UTC+8</option><option value="LOCAL">Local</option><option value="AoE">AoE</option></select></label>
+      <label class="sort-select"><select id="sort-by" aria-label="Sort schedule"><option value="date">Sort: Date</option><option value="rank">Sort: CCF rank</option><option value="name">Sort: Name</option></select></label>
+    </div>
+  </div>
   <section class="feature" aria-label="Conference overview">
     <article class="map-card">
       <div class="map-head"><h2><svg><use href="#i-globe"/></svg>Conference atlas</h2><span id="map-count" class="map-count"></span></div>
@@ -52,14 +74,20 @@
       <div class="map-foot"><div><span class="legend-dot"></span>Host city <span class="legend-dot hot"></span>Next deadline</div><span id="unmapped"></span></div>
     </article>
     <aside class="deadline-rail">
-      <article class="spotlight"><div class="spot-top"><h2><svg><use href="#i-clock"/></svg>Next deadline</h2><span class="live-label">UTC+8</span></div><div id="spot-body"></div><button id="focus-deadline" class="focus-deadline"><svg><use href="#i-focus"/></svg>Locate on globe</button></article>
-      <section class="upcoming-panel" aria-labelledby="upcoming-title"><div class="upcoming-heading"><h2 id="upcoming-title">Coming up</h2><span>UTC+8</span></div><div id="upcoming-list"></div></section>
+      <article class="spotlight">
+        <div class="spot-top"><h2><svg><use href="#i-clock"/></svg>Next deadline</h2><span class="live-label" id="spot-tz">UTC+8</span></div>
+        <div id="spot-body"></div>
+        <div class="spot-actions">
+          <button id="focus-deadline" class="focus-deadline"><svg><use href="#i-focus"/></svg>Locate on globe</button>
+          <button id="spot-ics" class="spot-ics" aria-label="Export next deadline to calendar" title="Add to calendar (.ics)" hidden><svg><use href="#i-calendar-plus"/></svg></button>
+        </div>
+      </article>
+      <section class="upcoming-panel" aria-labelledby="upcoming-title"><div class="upcoming-heading"><h2 id="upcoming-title">Coming up</h2><span id="upcoming-tz">UTC+8</span></div><div id="upcoming-list"></div></section>
     </aside>
   </section>
   <section class="agenda" id="agenda">
-    <div class="agenda-title"><div><h2 id="agenda-label">Submission deadlines</h2><span id="result-count" aria-live="polite"></span></div>
-    </div>
-    <div class="months" id="months" aria-label="Filter by month"></div>
+    <div class="agenda-title"><div><h2 id="agenda-label">Submission deadlines</h2><span id="result-count" aria-live="polite"></span></div></div>
+    <div class="months-wrap"><div class="months" id="months" aria-label="Filter by month"></div></div>
     <div id="schedule"></div>
     <button id="more" class="more" hidden>Show more conferences</button>
   </section>

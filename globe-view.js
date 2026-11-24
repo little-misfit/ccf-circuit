@@ -20,6 +20,14 @@
     const days = Math.floor(seconds / 86400);
     return `${days}d ${[Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60].map(n => String(n).padStart(2, '0')).join(':')}`;
   };
+  const monogramFor = title => {
+    if (!title) return 'CITY';
+    const clean = title.trim();
+    if (clean.length <= 5) return clean;
+    const parts = clean.split(/[\s-]+/).filter(Boolean);
+    if (parts.length > 1) return parts.map(p => p[0]).join('').slice(0, 4).toUpperCase();
+    return clean.slice(0, 4).toUpperCase();
+  };
 
   let instanceCount = 0;
   const radians = degrees => degrees * Math.PI / 180;
@@ -41,6 +49,7 @@
       this.visible = true;
       this.highlight = null;
       this.hoverKey = null;
+      this.externalHoverKey = null;
       this.pointers = new Map();
       this.prefix = `ccf-${++instanceCount}-`;
       this.layer = document.getElementById('globe-labels');
@@ -111,6 +120,7 @@
     get offset() { return [0, this.width < 600 ? 90 : 0]; }
     get globeRadius() { return this.height * .4 * this.view.scale; }
     get rippleRadius() { return clamp(this.globeRadius * .17, 24, 54); }
+    get activeHoverKey() { return this.hoverKey || this.externalHoverKey; }
 
     resize() {
       if (!this.available) return;
@@ -203,6 +213,20 @@
     stopRotation() { this.playing = false; this.syncMotion(); }
     toggleRotation() { this.playing = !this.playing; this.syncMotion(); }
 
+    highlightCity(key) {
+      if (!this.available || this.externalHoverKey === (key || null)) return;
+      this.externalHoverKey = key || null;
+      this.layoutLabels();
+    }
+
+    focusCity(key) {
+      if (!this.available) return;
+      const point = this.locations.find(p => p.key === key);
+      if (!point) return;
+      this.stopRotation();
+      this.focusLocation(point, true);
+    }
+
     bindPointerControls() {
       this.canvas.addEventListener('pointerdown', event => {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -251,12 +275,13 @@
       }, { passive: false });
     }
 
-    projectLocation(point) {
+    projectLocation(point, cachedBounds = null, cachedRootStyle = null) {
       const entry = this.labels.get(point.key);
       if (this.nativeAnchors && entry) {
-        const bounds = this.stage.getBoundingClientRect();
+        const bounds = cachedBounds || this.stage.getBoundingClientRect();
         const at = entry.anchor.getBoundingClientRect();
-        const visible = getComputedStyle(document.documentElement).getPropertyValue(`--cobe-visible-${point.markerId}`).trim();
+        const rootStyle = cachedRootStyle || getComputedStyle(document.documentElement);
+        const visible = rootStyle.getPropertyValue(`--cobe-visible-${point.markerId}`).trim();
         return { x: at.left - bounds.left, y: at.top - bounds.top, visible: Boolean(visible && visible !== '0') };
       }
       // Progressive fallback for browsers without CSS anchors. These equations
@@ -299,6 +324,8 @@
           identity.append(heading, location);
           header.append(logoFrame, identity);
           button.append(header, timer, kind);
+          button.addEventListener('pointerenter', () => { this.hoverKey = p.key; this.layoutLabels(); });
+          button.addEventListener('pointerleave', () => { if (this.hoverKey === p.key) { this.hoverKey = null; this.layoutLabels(); } });
           const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
           const anchor = document.createElement('span'); anchor.className = 'globe-anchor';
           anchor.style.positionAnchor = `--cobe-${p.markerId}`;
@@ -322,7 +349,7 @@
         entry.ripple.style.color = mix(accent, '#ffffff', .55);
         entry.pin.style.backgroundColor = mix(accent, '#ffffff', p.hot ? .45 : .3);
         entry.pin.classList.toggle('hot', p.hot);
-        entry.monogram.textContent = card ? card.title.slice(0, 5) : 'CITY';
+        entry.monogram.textContent = card ? monogramFor(card.title) : 'CITY';
         entry.logo.hidden = !brand?.logo || entry.logo.dataset.failed === brand.logo;
         entry.monogram.hidden = !entry.logo.hidden;
         if (brand?.logo) {
@@ -370,10 +397,11 @@
 
     nearbyLocation(event) {
       const bounds = this.stage.getBoundingClientRect();
+      const rootStyle = this.nativeAnchors ? getComputedStyle(document.documentElement) : null;
       const mouse = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       let nearest = null, distance = matchMedia('(pointer: coarse)').matches ? 28 : 18;
       for (const point of this.locations) {
-        const at = this.projectLocation(point);
+        const at = this.projectLocation(point, bounds, rootStyle);
         if (!at.visible) continue;
         const delta = Math.hypot(at.x - mouse.x, at.y - mouse.y);
         if (delta < distance) { nearest = point; distance = delta; }
@@ -415,18 +443,23 @@
       const maxLabels = width < 600 ? 2 : 5;
       const tagWidth = width < 600 ? 178 : 196;
       const tagHeight = width < 600 ? 84 : 100;
+      const hoverKey = this.activeHoverKey;
       const overlapsMarker = (marker, x, y, boxWidth, boxHeight) => {
         const dx = marker.x - Math.max(x, Math.min(x + boxWidth, marker.x));
         const dy = marker.y - Math.max(y, Math.min(y + boxHeight, marker.y));
         return Math.hypot(dx, dy) < marker.clearance;
       };
+      // Read stage geometry & CSS custom properties once per frame to avoid layout thrashing.
+      const stageBounds = this.nativeAnchors ? this.stage.getBoundingClientRect() : null;
+      const rootStyle = this.nativeAnchors ? getComputedStyle(document.documentElement) : null;
       const globeScreenRadius = this.globeRadius;
       const markers = this.locations.map(point => {
-        const at = this.projectLocation(point), entry = this.labels.get(point.key);
+        const at = this.projectLocation(point, stageBounds, rootStyle), entry = this.labels.get(point.key);
+        const isHovered = point.key === hoverKey;
         // Match COBE's projected marker diameter, with a legible minimum on phones.
-        const pinSize = Math.max(point.hot ? 11 : 8, this.globeRadius * markerSizeFor(point) / .8);
+        const pinSize = Math.max(point.hot || isHovered ? 11 : 8, this.globeRadius * markerSizeFor(point) / .8);
         entry.pin.hidden = !at.visible;
-        entry.pin.classList.toggle('hovered', point.key === this.hoverKey);
+        entry.pin.classList.toggle('hovered', isHovered);
         if (at.visible) {
           entry.pin.style.width = entry.pin.style.height = pinSize + 'px';
           entry.pin.style.transform = `translate(${at.x}px,${at.y}px) translate(-50%,-50%)`;
@@ -439,8 +472,8 @@
         return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : Math.max(10, pinSize / 2 + 6) };
       }).filter(point => point.visible);
       const occupied = [];
-      const candidates = [...this.locations].filter(p => cardFor(p) || p.key === this.hoverKey)
-        .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === this.hoverKey) - Number(a.key === this.hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
+      const candidates = [...this.locations].filter(p => cardFor(p) || p.key === hoverKey)
+        .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === hoverKey) - Number(a.key === hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
       const visible = new Set();
       for (const p of candidates) {
         if (occupied.length >= maxLabels) break;
@@ -473,9 +506,16 @@
         entry.button.style.transform = `translate(${box.x.toFixed(1)}px,${box.y.toFixed(1)}px)`;
         entry.line.style.display = '';
         entry.line.classList.toggle('hot', p.hot);
+        entry.line.classList.toggle('hovered', p.key === hoverKey);
         const endX = Math.max(box.x, Math.min(box.x + tagWidth, at.x));
         const endY = Math.max(box.y, Math.min(box.y + tagHeight, at.y));
-        entry.line.setAttribute('d', `M${at.x},${at.y} L${endX},${endY}`);
+        const dx = endX - at.x, dy = endY - at.y;
+        if (Math.abs(dx) > 24 && Math.abs(dy) > 14) {
+          const bendX = endX - Math.sign(dx) * Math.min(18, Math.abs(dx) * 0.35);
+          entry.line.setAttribute('d', `M${at.x.toFixed(1)},${at.y.toFixed(1)} L${bendX.toFixed(1)},${endY.toFixed(1)} L${endX.toFixed(1)},${endY.toFixed(1)}`);
+        } else {
+          entry.line.setAttribute('d', `M${at.x.toFixed(1)},${at.y.toFixed(1)} L${endX.toFixed(1)},${endY.toFixed(1)}`);
+        }
         occupied.push({ x: box.x, y: box.y - (p.hot ? 20 : 0), height: tagHeight + (p.hot ? 20 : 0) }); visible.add(p.key);
       }
       for (const [key, entry] of this.labels) {
