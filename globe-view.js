@@ -1,7 +1,8 @@
 'use strict';
 (() => {
   const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
-  const cardFor = point => point.next || point.undated;
+  const autoCardFor = point => point.next || point.undated;
+  const cardFor = point => point.next || point.undated || point.primary;
   const brandFor = point => {
     const card = cardFor(point);
     if (!card) return null;
@@ -361,10 +362,15 @@
         entry.button.dataset.city = p.key;
         if (card) entry.button.dataset.open = card.id;
         else delete entry.button.dataset.open;
+        const extra = p.events.length > 1 ? ` · +${p.events.length - 1} more` : '';
         entry.heading.textContent = card ? `${card.title} ${card.year}` : p.name;
-        entry.location.textContent = p.next ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}` : p.undated ? p.name : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
-        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : p.undated ? 'Deadline TBA' : 'View conferences';
-        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : p.undated ? 'Deadline to be announced. View details' : 'View conferences'}`);
+        entry.location.textContent = p.next
+          ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}`
+          : card
+            ? `${p.name}${extra}`
+            : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
+        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : p.undated ? 'Deadline TBA' : p.primary?.status || 'View conferences';
+        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : p.undated ? 'Deadline to be announced. View details' : card ? `${p.primary?.status || 'Conference'}. View details` : 'View conferences'}`);
         entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
       this.markers = this.locations.map(p => ({
@@ -384,7 +390,11 @@
 
     updateCountdowns() {
       for (const { point, timer } of this.labels.values()) {
-        timer.textContent = point.next ? formatCountdown(point.next.at) : point.undated ? 'Deadline TBA' : 'No upcoming deadline';
+        timer.textContent = point.next
+          ? formatCountdown(point.next.at)
+          : point.undated
+            ? 'Deadline TBA'
+            : point.primary?.status || 'No upcoming deadline';
       }
     }
 
@@ -472,7 +482,7 @@
         return { ...at, key: point.key, clearance: point.hot ? this.rippleRadius + 8 : Math.max(10, pinSize / 2 + 6) };
       }).filter(point => point.visible);
       const occupied = [];
-      const candidates = [...this.locations].filter(p => cardFor(p) || p.key === hoverKey)
+      const candidates = [...this.locations].filter(p => autoCardFor(p) || this.locations.length === 1 || p.key === hoverKey)
         .sort((a, b) => Number(b.hot) - Number(a.hot) || Number(b.key === hoverKey) - Number(a.key === hoverKey) || (a.next?.at || Infinity) - (b.next?.at || Infinity));
       const visible = new Set();
       for (const p of candidates) {

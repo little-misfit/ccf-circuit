@@ -325,13 +325,19 @@
     $('city-pop').hidden=true; openCity=null;
     const pending = pendingSubmissions();
     if (globeView?.available) {
+      const now = Date.now();
       const undated = new Set(rows.filter(r => r.undated || (state.mode === 'meet' && hasUnannouncedDeadline(r.e))).map(r => r.e));
       globeView.setLocations([...cityMap.values()].map(p => {
         const first = pending.find(({e}) => p.events.includes(e));
         const waiting = !first && p.events.find(e => undated.has(e));
+        const ordered = !first && !waiting
+          ? [...p.events].sort((a,b) => Number(hasUnannouncedDeadline(b))-Number(hasUnannouncedDeadline(a)) || b.year-a.year || dateKey(a).localeCompare(dateKey(b)) || byName(a.title,b.title))
+          : [];
+        const primary = ordered[0] || null;
         return {...p, lng:p.lon, hot:p.events.some(e => e.id === spotlight?.e.id),
           next:first ? {id:first.e.id,title:first.e.title,year:first.e.year,at:first.d.ts,type:first.d.type} : null,
-          undated:waiting ? {id:waiting.id,title:waiting.title,year:waiting.year} : null};
+          undated:waiting ? {id:waiting.id,title:waiting.title,year:waiting.year} : null,
+          primary:primary ? {id:primary.id,title:primary.title,year:primary.year,status:deadlineStatus(primary, now)} : null};
       }));
       return;
     }
@@ -352,7 +358,8 @@
     for (const p of groups.reverse()) {
       const [x,y] = p.xy, radius = (p.hot ? 5.7 : Math.min(5.2,3.7+Math.log(p.events.length)))/Math.sqrt(zoom);
       const color = p.hot ? '#dfa0a6' : '#b5c8e3';
-      const title = p.name+' · '+countLabel(p.events.length,'conference');
+      const confSummary = p.events.slice(0, 3).map(e => `${e.title} ${e.year}`).join(', ') + (p.events.length > 3 ? ` +${p.events.length - 3} more` : '');
+      const title = `${p.name} · ${confSummary}`;
       const label = labelPoints.has(p.key);
       const leftward = labelPoints.get(p.key);
       svg.push(`<g transform="translate(${x} ${y})" data-city="${esc(p.key)}" class="map-pin" tabindex="0" role="button" aria-label="${esc(title)}"><title>${esc(title)}</title><circle r="${radius+5}" fill="transparent"/>${p.hot ? `<circle r="${radius+4}" fill="none" stroke="${color}" opacity=".6"/>` : ''}<circle class="dot" r="${radius}" fill="${color}" stroke="#23344e" stroke-width="1.1"/>${label ? `<text x="${leftward?-9:9}" y="-6" text-anchor="${leftward?'end':'start'}" fill="${p.hot?'#f1cbd0':'#e1e8f3'}" font-family="Arial,sans-serif" font-size="12.4" font-weight="650" paint-order="stroke" stroke="#23344e" stroke-width="2.8">${esc(p.name)}</text>`:''}</g>`);
