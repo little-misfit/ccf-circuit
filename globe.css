@@ -1,10 +1,10 @@
-/* COBE 3D Globe Stage, Markers, Elbow Connectors & Floating Countdown Cards */
+/* Obsidian Cartographic Globe Stage & Archival Callout Plates */
 .map-head {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  padding: 18px 22px;
+  padding: 18px 20px;
   pointer-events: none;
   z-index: 5;
 }
@@ -24,7 +24,7 @@
 }
 
 #globe canvas.dragging { cursor: grabbing; }
-#globe:focus-visible { outline-color: #e4aab4; }
+#globe:focus-visible { outline-color: #e55843; }
 
 .globe-connectors, #globe-labels {
   position: absolute;
@@ -36,22 +36,22 @@
 
 .globe-connectors path {
   fill: none;
-  stroke: #adc2e0;
-  stroke-width: 1.15;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.48;
-  transition: opacity 0.16s ease, stroke-width 0.16s ease;
+  stroke: rgba(214, 208, 196, 0.45);
+  stroke-width: 1;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  opacity: 0.65;
+  transition: opacity 0.14s ease, stroke-width 0.14s ease;
 }
 
 .globe-connectors path.hot {
-  stroke: #e4a8b3;
-  stroke-width: 1.5;
-  opacity: 0.92;
+  stroke: #e89688;
+  stroke-width: 1.4;
+  opacity: 0.95;
 }
 
 .globe-connectors path.hovered {
-  stroke-width: 2;
+  stroke-width: 1.9;
   opacity: 1;
 }
 
@@ -71,18 +71,18 @@
   position: absolute;
   left: 0;
   top: 0;
-  border: 1.5px solid #f4f8ff;
+  border: 1.5px solid #faf7f0;
   border-radius: 50%;
-  box-shadow: 0 0 0 2px #111e30, 0 2px 6px rgba(3, 9, 18, 0.55);
+  box-shadow: 0 0 0 2px #0d0f13, 0 2px 6px rgba(0, 0, 0, 0.65);
   pointer-events: none;
-  transition: box-shadow 0.16s ease, border-color 0.16s ease;
+  transition: box-shadow 0.14s ease, border-color 0.14s ease;
 }
 
 .globe-pin.hot { border-width: 2px; }
 
 .globe-pin.hovered {
   border-color: #ffffff;
-  box-shadow: 0 0 0 3px #192f49, 0 0 0 6px rgba(212, 228, 251, 0.52);
+  box-shadow: 0 0 0 2.5px #0d0f13, 0 0 0 5.5px rgba(244, 241, 234, 0.42);
   z-index: 3;
 }
 
@@ -115,7 +115,7 @@
   to { transform: scale(1); opacity: 0; }
 }
 
-/* Floating Conference Cards */
+/* Cartographic Specimen Callout Plates */
 .globe-tag {
   position: absolute;
   top: 0;
@@ -123,30 +123,30 @@
   width: 196px;
   height: 100px;
   padding: 10px 11px;
-  border: 1px solid #c7d2e3;
-  border-left: 3.5px solid var(--tag-edge, #526d90);
-  border-radius: 11px;
+  border: 1px solid #d5dbe4;
+  border-left: 3px solid var(--tag-edge, #526d90);
+  border-radius: 4px;
   text-align: left;
-  color: #243246;
+  color: #1a1b1f;
   background: #f7f9fc;
-  box-shadow: 0 10px 24px rgba(10, 20, 36, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.44);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 6px;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .globe-tag:hover, .globe-tag:focus-visible {
   border-color: var(--tag-edge);
-  box-shadow: 0 12px 28px rgba(10, 20, 36, 0.44), 0 0 0 1.5px var(--tag-border);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.56), 0 0 0 1px var(--tag-edge);
 }
 
 .globe-tag.hot {
   border-color: var(--tag-edge);
   background: var(--tag-surface, #fafbfc);
-  box-shadow: 0 0 0 1px var(--tag-border), 0 12px 30px rgba(10, 20, 36, 0.45);
+  box-shadow: 0 0 0 1px var(--tag-border), 0 14px 36px rgba(0, 0, 0, 0.56);
 }
 
 .globe-tag-header {
@@ -159,13 +159,13 @@
 .globe-tag-logo-frame {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   flex: none;
   background: var(--tag-logo-background, #ffffff);
-  border-radius: 7px;
-  border: 1px solid #d5dde8;
-  padding: 3px;
+  border-radius: 3px;
+  border: 1px solid #d6dce6;
+  padding: 2.5px;
   overflow: hidden;
 }
 
@@ -177,8 +177,8 @@
 }
 
 .globe-tag-logo-frame:has(.globe-tag-logo[hidden]) {
-  background: var(--tag-surface, #edf2f8);
-  border-color: var(--tag-border, #cfd9e7);
+  background: var(--tag-surface, #eef1f5);
+  border-color: var(--tag-border, #ced5e0);
 }
 
 .globe-tag-monogram {
@@ -186,15 +186,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 750 9.5px/1 var(--sans);
+  font: 700 9.5px/1 var(--mono);
   letter-spacing: -0.02em;
-  color: var(--tag-ink, #31445e);
+  color: var(--tag-ink, #232a35);
 }
 
 .globe-tag-identity {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2.5px;
   min-width: 0;
 }
 
@@ -209,7 +209,7 @@
 
 .globe-tag-location {
   font-size: 11px;
-  color: #5c6c84;
+  color: #5c6370;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -221,7 +221,7 @@
   font-variant-numeric: tabular-nums;
   color: #46556b;
   white-space: nowrap;
-  border-top: 1px solid #dbe1ea;
+  border-top: 1px solid #dce1e8;
   padding-top: 6px;
 }
 
@@ -249,13 +249,11 @@
   width: 112px;
   height: 15px;
   padding: 0 5px;
-  border-radius: 4px;
-  background: rgba(18, 30, 48, 0.84);
-  font-size: 9.5px;
-  line-height: 15px;
-  font-weight: 700;
-  color: var(--tag-light, #f0c8d0);
-  letter-spacing: 0.09em;
+  border-radius: 2px;
+  background: rgba(13, 15, 19, 0.9);
+  font: 700 9px/15px var(--mono);
+  color: var(--tag-light, #f3cfc8);
+  letter-spacing: 0.11em;
 }
 
 /* Compact Globe Mode (< 600px stage width) */
@@ -266,7 +264,7 @@
   gap: 4px;
 }
 
-.compact-globe .globe-tag-logo-frame { width: 28px; height: 28px; }
+.compact-globe .globe-tag-logo-frame { width: 26px; height: 26px; }
 .compact-globe .globe-tag-heading { font-size: 12px; }
 .compact-globe .globe-countdown { font-size: 20px; padding-top: 4px; }
 
@@ -274,37 +272,38 @@
   position: absolute;
   inset: 46% 0 auto;
   text-align: center;
-  font-size: 14px;
-  color: #aebfd6;
+  font: 500 13px var(--mono);
+  color: #9e9a91;
   pointer-events: none;
 }
 
 [data-renderer="map"] #globe-status {
-  inset: 58px 0 auto;
-  font-size: 13px;
+  inset: 56px 0 auto;
+  font-size: 12px;
 }
 
 .globe-hint {
   position: absolute;
-  bottom: 22px;
-  left: 22px;
-  color: rgba(186, 204, 228, 0.85);
-  font-size: 12px;
+  bottom: 20px;
+  left: 20px;
+  color: rgba(182, 177, 168, 0.72);
+  font: 500 11px var(--mono);
+  letter-spacing: 0.02em;
   pointer-events: none;
 }
 
 @media (max-width: 1080px) {
   .map-head { padding: 16px 18px; }
-  .globe-hint { bottom: 68px; left: 18px; }
+  .globe-hint { bottom: 64px; left: 18px; }
 }
 
 @media (max-width: 760px) {
-  .map-head { padding: 15px 16px; }
-  .map-head h2 { font-size: 14.5px; }
-  .map-count { font-size: 12px; }
-  .globe-hint { bottom: 64px; left: 16px; font-size: 11px; }
+  .map-head { padding: 14px 16px; }
+  .map-head h2 { font-size: 11px; }
+  .map-count { font-size: 11px; }
+  .globe-hint { bottom: 60px; left: 16px; font-size: 10.5px; }
   .map-tools { right: 14px; bottom: 12px; }
-  .map-foot { padding: 10px 16px; font-size: 11.5px; }
+  .map-foot { padding: 9px 16px; font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

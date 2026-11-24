@@ -70,10 +70,10 @@
         this.globe = window.createCobe(this.canvas, {
           width: this.width, height: this.height,
           devicePixelRatio: Math.min(devicePixelRatio || 1, 2),
-          ...this.view, offset: this.offset, dark: 1, diffuse: 1.4,
-          mapSamples: 22000, mapBrightness: 5.8, mapBaseBrightness: .08,
-          baseColor: [.38, .46, .58], markerColor: [.78, .85, .96],
-          glowColor: [.16, .24, .38], markerElevation: .01,
+          ...this.view, offset: this.offset, dark: 1, diffuse: 1.35,
+          mapSamples: 22000, mapBrightness: 6.2, mapBaseBrightness: .06,
+          baseColor: [.52, .50, .47], markerColor: [.92, .90, .86],
+          glowColor: [.13, .14, .17], markerElevation: .01,
           opacity: 1, markers: [],
           context: { alpha: true, antialias: true, powerPreference: 'low-power' }
         });
