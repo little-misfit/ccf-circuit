@@ -1,6 +1,6 @@
 # CCF-Schedule
 
-Explore CCF A, B and C conferences on an interactive 3D globe and track submission deadlines. The site opens with submission deadlines filtered to **CCF A** across all research areas. The initial year contains the next future deadline within those filters, using UTC+8; if none is announced, it falls back to the current year. Change the year, month, subject or rank, switch to conference dates when needed, and save conferences in your browser. Resetting the filters clears the subject and rank restrictions so all conferences can be explored.
+Explore CCF A, B and C conferences on an interactive 3D globe and track submission deadlines. The site opens with **Upcoming** submission deadlines across years filtered to **CCF A** and all research areas, using UTC+8. Switch the time scope to **Next 90 days**, **Next 6 months**, or any specific archive year, filter by rolling cross-year months, subject or rank, switch to conference dates when needed, and save conferences in your browser. Resetting the filters clears the subject and rank restrictions so all conferences can be explored.
 
 The English interface uses a muted red, white and blue palette and a COBE dot-map globe. Conference cards take their accents from the corresponding official logos; an emphasized outline and ring identify the next deadline.
 

@@ -80,13 +80,8 @@ if (process.argv.includes('--browser')) {
       verify(document.querySelector('.brand').textContent.trim() === 'CCF-Schedule', 'Unexpected site branding');
       verify(!/[\u3400-\u4dbf\u4e00-\u9fff]/u.test(document.body.innerText), 'Unexpected Chinese interface text');
       verify(get('mode-deadline').getAttribute('aria-pressed') === 'true', 'Submission deadlines must be the default mode');
-      const futureRankA = window.CCF_DATA.events.filter(e => e.rank === 'A')
-        .flatMap(e => e.deadlines.map(d => Date.parse(d.at))).filter(at => at > Date.now());
       const currentYear = new Date(Date.now() + 8 * 3600000).getUTCFullYear();
-      const preferredYear = new Date((futureRankA.length ? Math.min(...futureRankA) : Date.now()) + 8 * 3600000).getUTCFullYear();
-      const availableYears = [...get('year').options].map(option => Number(option.value));
-      const defaultYear = availableYears.includes(preferredYear) ? preferredYear : availableYears.includes(currentYear) ? currentYear : availableYears[0];
-      verify(get('year').value === String(defaultYear), 'Default year must contain the next CCF A deadline');
+      verify(get('year').value === 'upcoming', 'Default scope must be Upcoming across years');
       verify(get('rank').value === 'A' && get('category').value === '', 'Initial filters must be CCF A and all research areas');
       const hot = document.querySelector('.globe-tag.hot');
       if (hot) {
@@ -114,7 +109,7 @@ if (process.argv.includes('--browser')) {
         verify(get('detail').open && get('detail-content').textContent.includes('To be announced'), 'Undated conference detail failed');
         get('detail-close').click();
         change('search', '');
-        change('year', String(defaultYear));
+        change('year', 'upcoming');
       }
       change('rank', '');
       change('category', '');
@@ -153,8 +148,9 @@ if (process.argv.includes('--browser')) {
       get('nav-all').click();
       get('mode-deadline').click();
       verify(get('agenda-label').textContent === 'Submission deadlines', 'Deadline mode failed');
-      const testYear = [...get('year').options].some(option => Number(option.value) === currentYear) ? currentYear : get('year').value;
-      change('year', String(testYear));
+      const yearOptions = [...get('year').options].map(option => option.value).filter(v => /^\d{4}$/.test(v));
+      const testYear = yearOptions.includes(String(currentYear)) ? String(currentYear) : yearOptions[0];
+      change('year', testYear);
       verify(document.querySelector('.event'), 'No deadline rows in an available year');
       change('search', 'no-such-conference-zzz');
       verify(get('clear-filter'), 'Empty search state failed');

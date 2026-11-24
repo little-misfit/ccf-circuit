@@ -70,18 +70,17 @@
   const today = cst(initialNow);
   const currentYear = Number(today.slice(0,4));
   const seasons = [...new Set(events.map(e => e.meetingYear))].sort((a,b) => b-a);
-  const nextInitialDeadline = events.filter(e => e.rank === 'A')
-    .flatMap(e => e.deadlines).filter(d => d.ts > initialNow).sort((a,b) => a.ts-b.ts)[0];
-  const initialYear = nextInitialDeadline ? Number(cst(nextInitialDeadline.ts).slice(0,4)) : currentYear;
   const state = {
-    year:initialYear, month:0, mode:'deadline', rank:'A', category:'', query:'',
+    scope:'upcoming', month:'', mode:'deadline', rank:'A', category:'', query:'',
     favOnly:false, hidePassed:false, sort:'date', tz:'UTC+8', theme:readTheme(), limit:32, saved:readSaved()
   };
-  let rows = [], yearRows = [], spotlight = null, cityMap = new Map(), openCity = null;
+  let rows = [], scopeRows = [], spotlight = null, cityMap = new Map(), openCity = null;
   let zoom = 1, center = [500,223];
   let lastNow = Date.now();
   let globeView = null;
   const hasUnannouncedDeadline = e => !e.deadlines.length || e.deadlines.some(d => !Number.isFinite(d.ts));
+  const isRollingScope = (scope = state.scope) => scope === 'upcoming' || scope === '90d' || scope === '180d';
+  const scopeLabel = (scope = state.scope) => scope === 'upcoming' ? 'Upcoming' : scope === '90d' ? 'Next 90 days' : scope === '180d' ? 'Next 6 months' : String(scope);
 
   function formatTz(value, tz = state.tz) {
     const ms = +new Date(value);
@@ -125,31 +124,58 @@
       ...e.deadlines.filter(d => Number.isFinite(d.ts)).map(d => Number(cst(d.ts).slice(0,4))),
       ...(hasUnannouncedDeadline(e) ? [e.meetingYear] : [])
     ]))].sort((a,b) => b-a);
-    if (!years.includes(state.year) && years.length) state.year = years.includes(currentYear) ? currentYear : years[0];
-    $('year').innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
-    $('year').value = state.year;
+    const valid = new Set(['upcoming', '90d', '180d', ...years.map(String)]);
+    if (!valid.has(String(state.scope))) state.scope = 'upcoming';
+    $('year').innerHTML = `<optgroup label="Planning"><option value="upcoming">Upcoming</option><option value="90d">Next 90 days</option><option value="180d">Next 6 months</option></optgroup><optgroup label="By year">${years.map(y => `<option value="${y}">${y}</option>`).join('')}</optgroup>`;
+    $('year').value = String(state.scope);
   }
-  function computeYearRows(now = Date.now()) {
+  function computeScopeRows(now = Date.now()) {
     const q = normalize(state.query).trim().split(/\s+/).filter(Boolean);
     const items = [];
+    const rolling = isRollingScope(state.scope);
+    const selectedYear = rolling ? null : Number(state.scope);
+    const todayIso = cst(now).slice(0,10);
+    const nowYear = Number(todayIso.slice(0,4));
+    const horizonMs = state.scope === '90d' ? now + 90 * 86400000 : state.scope === '180d' ? now + 180 * 86400000 : Infinity;
+    const horizonIso = Number.isFinite(horizonMs) ? cst(horizonMs).slice(0,10) : '9999-12-31';
     for (const e of events) {
       if ((state.rank && e.rank !== state.rank) || (state.category && state.category !== e.category) ||
           (state.favOnly && !state.saved.has(e.id)) || !q.every(s => e.search.includes(s))) continue;
       if (state.mode === 'meet') {
-        if (e.meetingYear !== state.year) continue;
-        if (state.hidePassed && !nextDeadline(e, now) && !hasUnannouncedDeadline(e)) continue;
-        items.push({e, date:e.start || '', d:null});
+        if (rolling) {
+          const endKey = e.end || e.start || '';
+          if (endKey) {
+            if (endKey < todayIso) continue;
+            if (Number.isFinite(horizonMs) && (e.start || endKey) > horizonIso) continue;
+          } else {
+            if (state.scope !== 'upcoming' || e.meetingYear < nowYear) continue;
+          }
+          items.push({e, date:e.start || '', d:null});
+        } else {
+          if (e.meetingYear !== selectedYear) continue;
+          if (state.hidePassed && !nextDeadline(e, now) && !hasUnannouncedDeadline(e)) continue;
+          items.push({e, date:e.start || '', d:null});
+        }
       } else {
         for (const d of e.deadlines) {
           if (!Number.isFinite(d.ts)) continue;
-          if (state.hidePassed && d.ts <= now) continue;
-          const dt = cst(d.ts);
-          if (Number(dt.slice(0,4)) === state.year) items.push({e, date:dt.slice(0,10), d});
+          if (rolling) {
+            if (d.ts <= now || d.ts > horizonMs) continue;
+            items.push({e, date:cst(d.ts).slice(0,10), d});
+          } else {
+            if (state.hidePassed && d.ts <= now) continue;
+            const dt = cst(d.ts);
+            if (Number(dt.slice(0,4)) === selectedYear) items.push({e, date:dt.slice(0,10), d});
+          }
         }
-        // Keep unannounced submissions visible under their conference year,
+        // Keep unannounced submissions visible under their conference year (and in Upcoming for current/future editions),
         // without assigning them an invented submission date or month.
-        if (e.meetingYear === state.year && hasUnannouncedDeadline(e)) {
-          items.push({e, date:'', d:null, undated:true});
+        if (hasUnannouncedDeadline(e)) {
+          if (state.scope === 'upcoming' && e.meetingYear >= nowYear) {
+            items.push({e, date:'', d:null, undated:true});
+          } else if (!rolling && e.meetingYear === selectedYear) {
+            items.push({e, date:'', d:null, undated:true});
+          }
         }
       }
     }
@@ -195,18 +221,29 @@
   function makeSpotlight(now) {
     return pendingSubmissions(now)[0] || null;
   }
+  function formatMonthChip(monthKey) {
+    if (!monthKey) return '';
+    if (monthKey.includes('-')) {
+      const [y, m] = monthKey.split('-');
+      return `${monthNames[Number(m)] || m} ${y}`;
+    }
+    return monthNames[Number(monthKey)] || monthKey;
+  }
   function renderActiveBar() {
     const chips = [];
+    const rolling = isRollingScope();
     if (state.favOnly) chips.push({key:'favOnly', label:'Saved only'});
+    if (state.scope !== 'upcoming') chips.push({key:'scope', label:rolling ? scopeLabel() : `Year ${state.scope}`});
     if (state.rank) chips.push({key:'rank', label:`CCF ${state.rank}`});
     if (state.category) chips.push({key:'category', label:fields[state.category] || state.category});
     if (state.query.trim()) chips.push({key:'query', label:`Search: ${state.query.trim()}`});
-    if (state.month) chips.push({key:'month', label:monthNames[state.month]});
-    if (state.hidePassed) chips.push({key:'hidePassed', label:'Active only'});
+    if (state.month) chips.push({key:'month', label:formatMonthChip(state.month)});
+    if (!rolling && state.hidePassed) chips.push({key:'hidePassed', label:'Active only'});
     $('active-chips').innerHTML = chips.length
       ? chips.map(c => `<button class="filter-chip" data-clear-chip="${esc(c.key)}" aria-label="Remove ${esc(c.label)} filter">${esc(c.label)}${icon('close')}</button>`).join('') +
         `<button class="filter-reset-inline" id="inline-reset">${icon('reset')}Reset all</button>`
-      : '<span class="active-empty-hint">Showing all conferences in this year</span>';
+      : `<span class="active-empty-hint">${rolling ? 'Showing upcoming conferences across all years' : `Showing all conferences in ${state.scope}`}</span>`;
+    $('toggle-passed').hidden = rolling;
     $('toggle-passed').setAttribute('aria-pressed', String(state.hidePassed));
     $('sort-by').value = state.sort;
     $('tz-select').value = state.tz;
@@ -244,16 +281,35 @@
     });
   }
   function renderMonths() {
+    if (isRollingScope()) {
+      const counts = new Map();
+      for (const r of scopeRows) {
+        if (!r.date || r.date.length < 7) continue;
+        const ym = r.date.slice(0,7);
+        counts.set(ym, (counts.get(ym) || 0) + 1);
+      }
+      const keys = [...counts.keys()].sort();
+      const allLabel = state.scope === 'upcoming' ? 'All upcoming' : `All (${state.scope})`;
+      $('months').innerHTML = `<button data-month="0" aria-pressed="${!state.month}">${allLabel}</button>` +
+        keys.map(ym => {
+          const [y, m] = ym.split('-');
+          const label = `${monthNames[Number(m)].slice(0,3)} '${y.slice(2)}`;
+          return `<button data-month="${ym}" aria-pressed="${state.month === ym}">${label}<span class="m-count">${counts.get(ym)}</span></button>`;
+        }).join('');
+      return;
+    }
     const counts = new Array(13).fill(0);
-    counts[0] = yearRows.length;
-    for (const r of yearRows) {
+    counts[0] = scopeRows.length;
+    for (const r of scopeRows) {
       const m = Number(r.date.slice(5,7)) || 0;
       if (m >= 1 && m <= 12) counts[m]++;
     }
     $('months').innerHTML = Array.from({length:13},(_,i)=>{
       const label = i ? monthNames[i].slice(0,3) : 'All year';
       const empty = i > 0 && counts[i] === 0;
-      return `<button data-month="${i}" aria-pressed="${i===state.month}"${empty ? ' class="is-empty"' : ''}>${label}${counts[i] && i > 0 ? `<span class="m-count">${counts[i]}</span>` : ''}</button>`;
+      const val = i ? String(i) : '0';
+      const active = i ? state.month === String(i) : !state.month;
+      return `<button data-month="${val}" aria-pressed="${active}"${empty ? ' class="is-empty"' : ''}>${label}${counts[i] && i > 0 ? `<span class="m-count">${counts[i]}</span>` : ''}</button>`;
     }).join('');
   }
   function renderSchedule() {
@@ -266,15 +322,19 @@
       if (!useDateGroups) {
         const heading = state.sort === 'rank' ? `CCF ${group}` : 'All matching conferences';
         blocks.push(`<div class="group-title"><b>${heading}</b><span>${countLabel(chunk.length, 'entry', 'entries')}</span></div><div class="rows">${chunk.join('')}</div>`);
+      } else if (group) {
+        const [gy, gm] = group.split('-');
+        blocks.push(`<div class="group-title"><b>${monthNames[Number(gm)]}</b><span>${gy}</span></div><div class="rows">${chunk.join('')}</div>`);
       } else {
-        const pendingDates = !group && state.mode === 'deadline';
-        const label = group ? monthNames[group] : pendingDates ? 'Deadlines to be announced' : 'Dates to be announced';
-        blocks.push(`<div class="group-title"><b>${label}</b><span>${group ? state.year : pendingDates ? state.year+' conference editions' : ''}</span></div><div class="rows">${chunk.join('')}</div>`);
+        const pendingDates = state.mode === 'deadline';
+        const label = pendingDates ? 'Deadlines to be announced' : 'Dates to be announced';
+        const sub = pendingDates ? (isRollingScope() ? 'Upcoming conference editions' : `${state.scope} conference editions`) : '';
+        blocks.push(`<div class="group-title"><b>${label}</b><span>${sub}</span></div><div class="rows">${chunk.join('')}</div>`);
       }
       chunk = [];
     }
     for (const {e,date,d,undated} of rows.slice(0,state.limit)) {
-      const nextGroup = !useDateGroups ? (state.sort === 'rank' ? e.rank : 'all') : (Number(date.slice(5,7)) || 0);
+      const nextGroup = !useDateGroups ? (state.sort === 'rank' ? e.rank : 'all') : (date && date.length >= 7 ? date.slice(0,7) : '');
       if (nextGroup !== group) { finish(); group = nextGroup; }
       const next = undated ? null : d || nextDeadline(e,now);
       const displayTime = d ? formatTz(d.ts) : '';
@@ -380,8 +440,19 @@
   }
   function render() {
     lastNow=Date.now();
-    yearRows=computeYearRows(lastNow);
-    rows=yearRows.filter(r => !state.month || Number(r.date.slice(5,7)) === state.month);
+    scopeRows=computeScopeRows(lastNow);
+    if (state.month) {
+      if (isRollingScope()) {
+        if (!scopeRows.some(r => r.date && r.date.slice(0,7) === state.month)) state.month = '';
+      } else if (state.month.includes('-')) {
+        state.month = '';
+      }
+    }
+    rows=scopeRows.filter(r => {
+      if (!state.month) return true;
+      if (!r.date || r.date.length < 7) return false;
+      return state.month.includes('-') ? r.date.slice(0,7) === state.month : Number(r.date.slice(5,7)) === Number(state.month);
+    });
     spotlight=makeSpotlight(lastNow);
     const unique=[...new Set(rows.map(r=>r.e))];
     $('title').textContent=state.favOnly?'Saved conferences':'CCF-Schedule';
@@ -474,7 +545,7 @@
     if ($('detail').open) showDetail(id);
   }
   function resetFilters() {
-    Object.assign(state,{rank:'',category:'',query:'',month:0,hidePassed:false,limit:32});
+    Object.assign(state,{rank:'',category:'',query:'',month:'',hidePassed:false,limit:32});
     $('rank').value='';$('category').value='';$('search').value='';
   }
   function focusCityOnMap(key) {
@@ -523,10 +594,11 @@
     if(action.hasAttribute('data-clear-chip')) {
       const key = action.dataset.clearChip;
       if (key === 'favOnly') state.favOnly = false;
+      else if (key === 'scope') { state.scope = 'upcoming'; state.month = ''; $('year').value = 'upcoming'; }
       else if (key === 'rank') { state.rank = ''; $('rank').value = ''; }
       else if (key === 'category') { state.category = ''; $('category').value = ''; }
       else if (key === 'query') { state.query = ''; $('search').value = ''; }
-      else if (key === 'month') state.month = 0;
+      else if (key === 'month') state.month = '';
       else if (key === 'hidePassed') state.hidePassed = false;
       state.limit = 32;
       render();
@@ -536,8 +608,10 @@
     if(action.hasAttribute('data-row')) return showDetail(action.dataset.row);
     if(action.hasAttribute('data-city')) {if(!suppressClick)showCity(action.dataset.city);return;}
     if(action.hasAttribute('data-month')){
-      state.month=Number(action.dataset.month);state.limit=32;render();
-      const activeMonth = $('months').querySelector(`[data-month="${state.month}"]`);
+      const val = action.dataset.month;
+      state.month = (val === '0' || !val) ? '' : val;
+      state.limit=32;render();
+      const activeMonth = $('months').querySelector(`[data-month="${state.month || '0'}"]`);
       activeMonth?.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
       return;
     }
@@ -550,7 +624,7 @@
       case 'globe-motion':globeView?.toggleRotation();break;
       case 'focus-deadline':if(globeView?.available)globeView.focusNearest();else if(spotlight?.e.points.length){const p=spotlight.e.points[0];showCity(cityKeyFor(p));zoomBy(2);}break;
       case 'nav-all':case 'nav-fav':state.favOnly=action.id==='nav-fav';resetFilters();render();break;
-      case 'mode-meet':case 'mode-deadline':state.mode=action.id==='mode-meet'?'meet':'deadline';state.month=0;state.limit=32;populateYears();render();break;
+      case 'mode-meet':case 'mode-deadline':state.mode=action.id==='mode-meet'?'meet':'deadline';state.month='';state.limit=32;populateYears();render();break;
       case 'clear-filter':case 'inline-reset':state.favOnly=false;resetFilters();render();break;
       case 'toggle-passed':state.hidePassed=!state.hidePassed;state.limit=32;render();break;
       case 'theme-toggle':
@@ -607,7 +681,7 @@
   });
   function stopDrag(){drag=null;$('map').classList.remove('drag');setTimeout(()=>{suppressClick=false;},0);}
   $('map').addEventListener('pointerup',stopDrag);$('map').addEventListener('pointercancel',stopDrag);
-  $('year').addEventListener('change',()=>{state.year=Number($('year').value);state.month=0;state.limit=32;render();});
+  $('year').addEventListener('change',()=>{state.scope=$('year').value;state.month='';state.limit=32;render();});
   ['rank','category'].forEach(id=>$(id).addEventListener('change',()=>{state[id]=$(id).value;state.limit=32;render();}));
   $('search').addEventListener('input',()=>{state.query=$('search').value;state.limit=32;render();});
   $('sort-by').addEventListener('change',()=>{state.sort=$('sort-by').value;state.limit=32;render();});

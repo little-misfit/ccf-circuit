@@ -30,26 +30,53 @@ Object.defineProperty(window,'CCFGlobe',{configurable:true,set(Adapter){
 READY = "window.__qaGlobe?.available && __qaContexts.get(__qaGlobe.canvas)?.draws>0 && __qaGlobe.stage.dataset.renderer==='cobe'"
 
 
-def expected_nearest(events, year, now, rank='', category='', mode='meet', month=0):
+def expected_nearest(events, year, now, rank='', category='', mode='meet', month=''):
     candidates = []
+    rolling = str(year) in {'upcoming', '90d', '180d'}
+    horizon = now + (90 if str(year) == '90d' else 180) * 86400000 if str(year) in {'90d', '180d'} else float('inf')
+    today_iso = datetime.fromtimestamp(now / 1000, timezone(timedelta(hours=8))).strftime('%Y-%m-%d')
+    horizon_iso = datetime.fromtimestamp(horizon / 1000, timezone(timedelta(hours=8))).strftime('%Y-%m-%d') if horizon != float('inf') else '9999-12-31'
+    month_str = '' if str(month) in {'', '0'} else str(month)
     for event in events:
         if rank and event['rank'] != rank or category and event['category'] != category:
             continue
         start = event.get('start') or ''
+        end = event.get('end') or start
         if mode == 'meet':
-            if int(start[:4] or event['year']) != year:
+            if rolling:
+                if end:
+                    if end < today_iso or (horizon != float('inf') and (start or end) > horizon_iso):
+                        continue
+                elif str(year) != 'upcoming' or int(event['year']) < int(today_iso[:4]):
+                    continue
+            elif int(start[:4] or event['year']) != int(year):
                 continue
-            if month and (not start or int(start[5:7]) != month):
-                continue
+            if month_str:
+                if not start:
+                    continue
+                if '-' in month_str and start[:7] != month_str:
+                    continue
+                if '-' not in month_str and int(start[5:7]) != int(month_str):
+                    continue
         for deadline in event['deadlines']:
             if not deadline.get('at'):
                 continue
             instant = datetime.fromisoformat(deadline['at'].replace('Z', '+00:00'))
-            if instant.timestamp() * 1000 <= now:
+            ms = instant.timestamp() * 1000
+            if ms <= now:
                 continue
             local = instant.astimezone(timezone(timedelta(hours=8)))
-            if mode == 'deadline' and (local.year != year or month and local.month != month):
-                continue
+            if mode == 'deadline':
+                if rolling:
+                    if ms > horizon:
+                        continue
+                elif local.year != int(year):
+                    continue
+                if month_str:
+                    if '-' in month_str and local.strftime('%Y-%m') != month_str:
+                        continue
+                    if '-' not in month_str and local.month != int(month_str):
+                        continue
             candidates.append((instant, event['title'], event['id']))
     return sorted(candidates)[0][2] if candidates else None
 
@@ -301,7 +328,7 @@ def main():
         check(label, geometry['markers'] > 0 and geometry['cards'] > 0 and not geometry['violations'] and not geometry['projectionErrors'], geometry)
 
     def nearest(page, label):
-        snapshot = page.evaluate("({events:CCF_DATA.events,year:Number(document.querySelector('#year').value),now:Date.now(),rank:document.querySelector('#rank').value,category:document.querySelector('#category').value,mode:document.querySelector('#mode-deadline').getAttribute('aria-pressed')==='true'?'deadline':'meet',month:Number(document.querySelector('#months [aria-pressed=true]').dataset.month)})")
+        snapshot = page.evaluate("({events:CCF_DATA.events,year:document.querySelector('#year').value,now:Date.now(),rank:document.querySelector('#rank').value,category:document.querySelector('#category').value,mode:document.querySelector('#mode-deadline').getAttribute('aria-pressed')==='true'?'deadline':'meet',month:document.querySelector('#months [aria-pressed=true]')?.dataset.month || ''})")
         if page.locator('#nav-fav').get_attribute('aria-pressed') == 'true':
             saved = page.evaluate("JSON.parse(localStorage.getItem('ccf-circuit.saved.v1') || '[]')")
             snapshot['events'] = [event for event in snapshot['events'] if event['id'] in saved]
@@ -352,13 +379,8 @@ def main():
         pause(page)
         english_ui(page, 'overview uses English and exact CCF-Schedule branding')
         initial = page.evaluate('({events:CCF_DATA.events,now:Date.now()})')
-        rank_a_times = [datetime.fromisoformat(deadline['at'].replace('Z', '+00:00')).timestamp() * 1000
-                        for event in initial['events'] if event['rank'] == 'A'
-                        for deadline in event['deadlines'] if deadline.get('at')]
-        earliest_rank_a = min((at for at in rank_a_times if at > initial['now']), default=initial['now'])
-        default_year = datetime.fromtimestamp(earliest_rank_a / 1000, timezone(timedelta(hours=8))).year
-        check('initial submission year contains the next CCF A deadline', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
-              and page.locator('#year').input_value() == str(default_year))
+        check('initial scope is cross-year upcoming deadlines', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
+              and page.locator('#year').input_value() == 'upcoming')
         check('initial filters are CCF A and all research areas', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == '')
         logo_assets = page.evaluate("""async () => {
           const sources=[...new Set(Object.values(CCF_BRANDS).map(brand=>brand.logo))];
@@ -393,7 +415,7 @@ def main():
               page.locator('#schedule [data-row="iccv27"]').count() == 0 and page.evaluate('__qaGlobe.locations.length===0'))
         page.locator('#months [data-month="0"]').click(); page.locator('#year').select_option('2026')
         check('ICCV 2027 TBA does not leak into another submission year', page.locator('#schedule [data-row="iccv27"]').count() == 0)
-        page.locator('#year').select_option(str(default_year)); page.locator('#search').fill('')
+        page.locator('#year').select_option('upcoming'); page.locator('#search').fill('')
         brand_cards = []
         for conference in ['ACL', 'ICML']:
             page.locator('#search').fill(conference)
@@ -679,8 +701,12 @@ def main():
             route.fulfill(content_type='text/javascript',body='window.CCF_DATA='+json.dumps({'events':records,'updatedAt':'2026-06-01T00:00:00Z'})+';')
         context.route(re.compile(r'/conferences\.js(?:\?.*)?$'), scope_fixture)
         page = context.new_page(); page.goto(args.url); ready(page); pause(page)
-        check('mixed fixture initially shows only the dated milestone in its submission year',
-              page.locator('#year').input_value() == '2026' and page.locator('#schedule .event').count() == 1
+        check('mixed fixture initially opens in cross-year upcoming scope',
+              page.locator('#year').input_value() == 'upcoming' and page.locator('#schedule [data-row="mixed"]').count() >= 1
+              and page.locator('#schedule [data-row="dated"]').count() == 1)
+        page.locator('#year').select_option('2026')
+        check('selecting 2026 shows only the dated milestone in its submission year',
+              page.locator('#schedule .event').count() == 1
               and page.locator('#schedule [data-row="mixed"] .deadline-text').text_content() != 'Deadline TBA')
         page.locator('#year').select_option('2027')
         ids = page.locator('#schedule .event').evaluate_all('es=>es.map(e=>e.dataset.row).sort()')
