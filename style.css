@@ -1312,6 +1312,20 @@ select option {
   border-bottom: 1px solid var(--line-strong);
 }
 
+.ledger-head {
+  display: grid;
+  grid-template-columns: 78px minmax(200px, 1.4fr) minmax(145px, 0.95fr) minmax(185px, 0.95fr) 94px;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  font: 600 10px/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--faint);
+}
+
 .event {
   display: grid;
   grid-template-columns: 78px minmax(200px, 1.4fr) minmax(145px, 0.95fr) minmax(185px, 0.95fr) auto;
@@ -1430,6 +1444,11 @@ select option {
 .deadline-text.is-live {
   font: 700 18.5px/1.12 var(--mono);
   letter-spacing: -0.04em;
+}
+
+.deadline-text.is-meet-status {
+  font: 650 15.5px/1.2 var(--mono);
+  letter-spacing: -0.025em;
 }
 
 .active-deadline { color: var(--ink); }
@@ -1784,6 +1803,7 @@ dialog::backdrop {
   .feature { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .deadline-rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .map-stage { height: 610px; min-height: 610px; }
+  .ledger-head { grid-template-columns: 68px minmax(160px, 1.3fr) minmax(115px, 0.9fr) minmax(168px, 0.95fr) 94px; gap: 10px; }
   .event { grid-template-columns: 68px minmax(160px, 1.3fr) minmax(115px, 0.9fr) minmax(168px, 0.95fr) auto; gap: 10px; }
   .deadline-text.is-live { font-size: 16.5px; }
 }
@@ -1824,6 +1844,7 @@ dialog::backdrop {
     pointer-events: none;
     background: linear-gradient(90deg, transparent, var(--paper));
   }
+  .ledger-head { display: none; }
   .event {
     grid-template-columns: 54px minmax(0, 1fr) auto;
     grid-template-areas:

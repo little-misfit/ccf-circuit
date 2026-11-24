@@ -153,7 +153,8 @@
           items.push({e, date:e.start || '', d:null});
         } else {
           if (e.meetingYear !== selectedYear) continue;
-          if (state.hidePassed && !nextDeadline(e, now) && !hasUnannouncedDeadline(e)) continue;
+          const endKey = e.end || e.start || '';
+          if (state.hidePassed && endKey && endKey < todayIso) continue;
           items.push({e, date:e.start || '', d:null});
         }
       } else {
@@ -205,6 +206,23 @@
     const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
     return d ? `${d}d ${clock}` : clock;
   }
+  function meetingRelative(e, todayIso) {
+    const start = e.start || '';
+    const end = e.end || start;
+    if (!start) return {text:'Dates TBA', urgency:'urgency-tba', ended:false, ongoing:false};
+    if (todayIso >= start && todayIso <= end) return {text:'In progress', urgency:'urgency-urgent', ended:false, ongoing:true};
+    if (end < todayIso) return {text:'Ended', urgency:'urgency-closed', ended:true, ongoing:false};
+    const days = Math.round((Date.parse(start + 'T00:00:00Z') - Date.parse(todayIso + 'T00:00:00Z')) / 86400000);
+    const text = days === 1 ? 'Tomorrow' : `In ${days} days`;
+    const urgency = days <= 14 ? 'urgency-urgent' : days <= 45 ? 'urgency-soon' : 'urgency-calm';
+    return {text, urgency, ended:false, ongoing:false};
+  }
+  function cfpTag(e, now) {
+    const next = nextDeadline(e, now);
+    if (next) return {label:'CFP open', cls:'paper'};
+    if (hasUnannouncedDeadline(e)) return {label:'CFP TBA', cls:'tba'};
+    return {label:'CFP closed', cls:'abstract'};
+  }
   function urgencyClass(ts, now = Date.now()) {
     if (!Number.isFinite(ts)) return 'urgency-tba';
     const diffDays = (ts - now) / 86400000;
@@ -244,6 +262,7 @@
         `<button class="filter-reset-inline" id="inline-reset">${icon('reset')}Reset all</button>`
       : `<span class="active-empty-hint">${rolling ? 'Showing upcoming conferences across all years' : `Showing all conferences in ${state.scope}`}</span>`;
     $('toggle-passed').hidden = rolling;
+    $('toggle-passed').textContent = state.mode === 'meet' ? 'Hide ended' : 'Hide passed';
     $('toggle-passed').setAttribute('aria-pressed', String(state.hidePassed));
     $('sort-by').value = state.sort;
     $('tz-select').value = state.tz;
@@ -315,46 +334,68 @@
   function renderSchedule() {
     const blocks = [];
     const now = Date.now();
+    const todayIso = cst(now).slice(0,10);
+    const isMeet = state.mode === 'meet';
     const useDateGroups = state.sort === 'date';
+    const ledgerCols = isMeet
+      ? '<div class="ledger-head" aria-hidden="true"><span>Opens</span><span>Conference</span><span>Venue &amp; dates</span><span>Starts in</span><span></span></div>'
+      : '<div class="ledger-head" aria-hidden="true"><span>Deadline</span><span>Conference</span><span>Venue &amp; dates</span><span>Countdown</span><span></span></div>';
     let group = null, chunk = [];
     function finish() {
       if (!chunk.length) return;
       if (!useDateGroups) {
         const heading = state.sort === 'rank' ? `CCF ${group}` : 'All matching conferences';
-        blocks.push(`<div class="group-title"><b>${heading}</b><span>${countLabel(chunk.length, 'entry', 'entries')}</span></div><div class="rows">${chunk.join('')}</div>`);
+        blocks.push(`<div class="group-title"><b>${heading}</b><span>${countLabel(chunk.length, 'entry', 'entries')}</span></div><div class="rows">${ledgerCols}${chunk.join('')}</div>`);
       } else if (group) {
         const [gy, gm] = group.split('-');
-        blocks.push(`<div class="group-title"><b>${monthNames[Number(gm)]}</b><span>${gy}</span></div><div class="rows">${chunk.join('')}</div>`);
+        blocks.push(`<div class="group-title"><b>${monthNames[Number(gm)]}</b><span>${gy}</span></div><div class="rows">${ledgerCols}${chunk.join('')}</div>`);
       } else {
-        const pendingDates = state.mode === 'deadline';
+        const pendingDates = !isMeet;
         const label = pendingDates ? 'Deadlines to be announced' : 'Dates to be announced';
         const sub = pendingDates ? (isRollingScope() ? 'Upcoming conference editions' : `${state.scope} conference editions`) : '';
-        blocks.push(`<div class="group-title"><b>${label}</b><span>${sub}</span></div><div class="rows">${chunk.join('')}</div>`);
+        blocks.push(`<div class="group-title"><b>${label}</b><span>${sub}</span></div><div class="rows">${ledgerCols}${chunk.join('')}</div>`);
       }
       chunk = [];
     }
     for (const {e,date,d,undated} of rows.slice(0,state.limit)) {
       const nextGroup = !useDateGroups ? (state.sort === 'rank' ? e.rank : 'all') : (date && date.length >= 7 ? date.slice(0,7) : '');
       if (nextGroup !== group) { finish(); group = nextGroup; }
-      const next = undated ? null : d || nextDeadline(e,now);
-      const displayTime = d ? formatTz(d.ts) : '';
-      const day = displayTime ? displayTime.slice(8,10) : date ? date.slice(8,10) : '—';
-      const wk = displayTime ? weekdayFor(displayTime.slice(0,10)) : date ? weekdayFor(date) : '';
-      const subDate = displayTime ? displayTime.slice(11) : (date && Number(date.slice(5,7)) ? monthNames[Number(date.slice(5,7))].slice(0,3) : 'TBA');
-      const status = undated ? 'Deadline TBA' : next ? (next.ts > now ? liveCountdown(next.ts, now) : 'Closed') : deadlineStatus(e,now);
-      const isClosed = !undated && (!next || next.ts <= now);
-      const isLive = !undated && Boolean(next && next.ts > now);
-      const urgency = undated ? 'urgency-tba' : next ? urgencyClass(next.ts, now) : 'urgency-closed';
-      const kindPill = undated
-        ? '<span class="kind-pill tba">TBA</span>'
-        : d ? `<span class="kind-pill ${d.type}">${kindLabel(d)}</span>`
-        : next ? `<span class="kind-pill ${next.type}">${kindLabel(next)}</span>`
-        : '<span class="kind-pill tba">Status</span>';
-      const noteText = d?.note ? `<span class="note-pill" title="${esc(d.note)}">${esc(d.note)}</span>` : '';
       const saved = state.saved.has(e.id);
-      const nearest = !undated && e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
       const cityKey = e.points.length ? cityKeyFor(e.points[0]) : '';
-      chunk.push(`<article class="event${nearest ? ' is-next' : ''}${isClosed ? ' is-closed' : ''}" data-row="${esc(e.id)}"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><div class="date-block"><span class="date-block-top"><strong>${day}</strong>${wk ? `<span class="weekday">${wk}</span>` : ''}</span><small>${subDate}</small></div><div class="identity-cell">${brandThumb(e, 'is-sm')}<div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><div class="event-submeta"><small>${e.year} · ${esc(fields[e.category] || e.category)}</small>${noteText}</div></div></div><div class="cell location-cell"><span class="place-text">${esc(e.place || 'Location TBA')}</span><small>${esc(e.date || 'Dates TBA')}</small></div><div class="cell deadline-cell"><span class="deadline-text ${isLive ? 'active-deadline is-live ' : ''}${urgency}" ${isLive ? `data-live-countdown="${next.ts}"` : next ? `data-relative="${next.ts}"` : ''}>${status}</span><div class="deadline-sub">${kindPill}${!d && next ? `<small>${esc(formatTz(next.ts).slice(5,16))}</small>` : ''}</div></div><div class="row-actions">${cityKey ? `<button class="row-btn is-desktop-only" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}${validUrl(e.link) ? `<a class="row-btn is-desktop-only" href="${esc(e.link)}" target="_blank" rel="noopener" aria-label="Open ${esc(e.title)} website" title="Official website" data-ext="1">${icon('link')}</a>` : ''}<button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'Unsave':'Save'} ${esc(e.title)} ${e.year}">${icon('star')}</button></div></article>`);
+      let day, wk, subDate, status, isClosed, isLive, isNextRow, urgency, deadlineSub, liveAttr = '', noteText = '';
+      if (isMeet) {
+        day = date ? date.slice(8,10) : '—';
+        wk = date ? weekdayFor(date) : '';
+        subDate = date && Number(date.slice(5,7)) ? monthNames[Number(date.slice(5,7))].slice(0,3) : 'TBA';
+        const mInfo = meetingRelative(e, todayIso);
+        const cfp = cfpTag(e, now);
+        status = mInfo.text;
+        isClosed = mInfo.ended;
+        isLive = false;
+        isNextRow = mInfo.ongoing;
+        urgency = mInfo.urgency;
+        deadlineSub = `<span class="kind-pill ${cfp.cls}">${cfp.label}</span>`;
+      } else {
+        const next = undated ? null : d || nextDeadline(e,now);
+        const displayTime = d ? formatTz(d.ts) : '';
+        day = displayTime ? displayTime.slice(8,10) : date ? date.slice(8,10) : '—';
+        wk = displayTime ? weekdayFor(displayTime.slice(0,10)) : date ? weekdayFor(date) : '';
+        subDate = displayTime ? displayTime.slice(11) : (date && Number(date.slice(5,7)) ? monthNames[Number(date.slice(5,7))].slice(0,3) : 'TBA');
+        status = undated ? 'Deadline TBA' : next ? (next.ts > now ? liveCountdown(next.ts, now) : 'Closed') : deadlineStatus(e,now);
+        isClosed = !undated && (!next || next.ts <= now);
+        isLive = !undated && Boolean(next && next.ts > now);
+        isNextRow = !undated && e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
+        urgency = undated ? 'urgency-tba' : next ? urgencyClass(next.ts, now) : 'urgency-closed';
+        const kindPill = undated
+          ? '<span class="kind-pill tba">TBA</span>'
+          : d ? `<span class="kind-pill ${d.type}">${kindLabel(d)}</span>`
+          : next ? `<span class="kind-pill ${next.type}">${kindLabel(next)}</span>`
+          : '<span class="kind-pill tba">Status</span>';
+        deadlineSub = `${kindPill}${!d && next ? `<small>${esc(formatTz(next.ts).slice(5,16))}</small>` : ''}`;
+        liveAttr = isLive ? `data-live-countdown="${next.ts}"` : next ? `data-relative="${next.ts}"` : '';
+        noteText = d?.note ? `<span class="note-pill" title="${esc(d.note)}">${esc(d.note)}</span>` : '';
+      }
+      chunk.push(`<article class="event${isNextRow ? ' is-next' : ''}${isClosed ? ' is-closed' : ''}" data-row="${esc(e.id)}"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><div class="date-block"><span class="date-block-top"><strong>${day}</strong>${wk ? `<span class="weekday">${wk}</span>` : ''}</span><small>${subDate}</small></div><div class="identity-cell">${brandThumb(e, 'is-sm')}<div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><div class="event-submeta"><small>${e.year} · ${esc(fields[e.category] || e.category)}</small>${noteText}</div></div></div><div class="cell location-cell"><span class="place-text">${esc(e.place || 'Location TBA')}</span><small>${esc(e.date || 'Dates TBA')}</small></div><div class="cell deadline-cell"><span class="deadline-text ${isLive ? 'active-deadline is-live ' : isMeet && !isClosed ? 'is-meet-status ' : ''}${urgency}" ${liveAttr}>${status}</span><div class="deadline-sub">${deadlineSub}</div></div><div class="row-actions">${cityKey ? `<button class="row-btn is-desktop-only" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}${validUrl(e.link) ? `<a class="row-btn is-desktop-only" href="${esc(e.link)}" target="_blank" rel="noopener" aria-label="Open ${esc(e.title)} website" title="Official website" data-ext="1">${icon('link')}</a>` : ''}<button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'Unsave':'Save'} ${esc(e.title)} ${e.year}">${icon('star')}</button></div></article>`);
     }
     finish();
     $('schedule').innerHTML = blocks.join('') || `<div class="empty">${state.favOnly ? 'No saved conferences match these filters. Use the star beside a conference to save it.' : 'No conferences match these filters.'} <button id="clear-filter">Reset filters</button></div>`;
@@ -433,8 +474,19 @@
     const p=cityMap.get(key);
     if(!p)return;
     openCity=key;
-    const pending = pendingSubmissions();
-    $('city-pop').innerHTML=`<div class="pop-title"><span>${esc(p.name)} · ${countLabel(p.events.length,'conference')}</span><button id="pop-close" aria-label="Close city conferences">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{const next=pending.find(s=>s.e===e)?.d;const status=rows.some(r=>r.e===e&&r.undated)?'Deadline TBA':nextDeadline(e,Date.now())?'No upcoming deadlines in this range':deadlineStatus(e,Date.now());return `<button class="pop-event" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="pop-event-body"><span class="pop-event-head"><strong>${esc(e.title)} ${e.year}</strong>${rankBadge(e)}</span><span class="pop-sub">${next?typeName(next)+' · '+relative(next.ts):status}</span></span></button>`;}).join('')}`;
+    const now = Date.now();
+    const todayIso = cst(now).slice(0,10);
+    const pending = pendingSubmissions(now);
+    $('city-pop').innerHTML=`<div class="pop-title"><span>${esc(p.name)} · ${countLabel(p.events.length,'conference')}</span><button id="pop-close" aria-label="Close city conferences">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{
+      if (state.mode === 'meet') {
+        const mInfo = meetingRelative(e, todayIso);
+        const sub = `${e.date || 'Dates TBA'} · ${mInfo.text}`;
+        return `<button class="pop-event" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="pop-event-body"><span class="pop-event-head"><strong>${esc(e.title)} ${e.year}</strong>${rankBadge(e)}</span><span class="pop-sub">${esc(sub)}</span></span></button>`;
+      }
+      const next=pending.find(s=>s.e===e)?.d;
+      const status=rows.some(r=>r.e===e&&r.undated)?'Deadline TBA':nextDeadline(e,now)?'No upcoming deadlines in this range':deadlineStatus(e,now);
+      return `<button class="pop-event" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="pop-event-body"><span class="pop-event-head"><strong>${esc(e.title)} ${e.year}</strong>${rankBadge(e)}</span><span class="pop-sub">${next?typeName(next)+' · '+relative(next.ts, now):status}</span></span></button>`;
+    }).join('')}`;
     $('city-pop').hidden=false;
     $('pop-close').focus({preventScroll:true});
   }
