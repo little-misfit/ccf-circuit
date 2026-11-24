@@ -80,14 +80,14 @@ if (process.argv.includes('--browser')) {
       verify(document.querySelector('.brand').textContent.trim() === 'CCF-Schedule', 'Unexpected site branding');
       verify(!/[\u3400-\u4dbf\u4e00-\u9fff]/u.test(document.body.innerText), 'Unexpected Chinese interface text');
       verify(get('mode-deadline').getAttribute('aria-pressed') === 'true', 'Submission deadlines must be the default mode');
-      const futureAI = window.CCF_DATA.events.filter(e => e.rank === 'A' && e.category === 'AI')
+      const futureRankA = window.CCF_DATA.events.filter(e => e.rank === 'A')
         .flatMap(e => e.deadlines.map(d => Date.parse(d.at))).filter(at => at > Date.now());
       const currentYear = new Date(Date.now() + 8 * 3600000).getUTCFullYear();
-      const preferredYear = new Date((futureAI.length ? Math.min(...futureAI) : Date.now()) + 8 * 3600000).getUTCFullYear();
+      const preferredYear = new Date((futureRankA.length ? Math.min(...futureRankA) : Date.now()) + 8 * 3600000).getUTCFullYear();
       const availableYears = [...get('year').options].map(option => Number(option.value));
       const defaultYear = availableYears.includes(preferredYear) ? preferredYear : availableYears.includes(currentYear) ? currentYear : availableYears[0];
-      verify(get('year').value === String(defaultYear), 'Default year must contain the next AI CCF A deadline');
-      verify(get('rank').value === 'A' && get('category').value === 'AI', 'Initial filters must be CCF A and Artificial Intelligence');
+      verify(get('year').value === String(defaultYear), 'Default year must contain the next CCF A deadline');
+      verify(get('rank').value === 'A' && get('category').value === '', 'Initial filters must be CCF A and all research areas');
       const hot = document.querySelector('.globe-tag.hot');
       if (hot) {
         const next = window.__qaGlobe.locations.find(point => point.hot)?.next;

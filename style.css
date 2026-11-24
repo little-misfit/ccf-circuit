@@ -1313,12 +1313,12 @@ select option {
 
 .event {
   display: grid;
-  grid-template-columns: 78px minmax(210px, 1.5fr) minmax(150px, 1fr) minmax(150px, 0.85fr) auto;
+  grid-template-columns: 78px minmax(200px, 1.4fr) minmax(145px, 0.95fr) minmax(185px, 0.95fr) auto;
   align-items: center;
   gap: 14px;
   padding: 13px 14px;
   cursor: pointer;
-  min-height: 68px;
+  min-height: 70px;
   transition: background-color 0.12s ease;
 }
 
@@ -1420,16 +1420,22 @@ select option {
 .deadline-cell { gap: 5px; }
 
 .deadline-text {
-  font: 650 13px/1.2 var(--mono);
+  font: 600 13.5px/1.2 var(--mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.deadline-text.is-live {
+  font: 700 18.5px/1.12 var(--mono);
+  letter-spacing: -0.04em;
 }
 
 .active-deadline { color: var(--ink); }
 .deadline-text.urgency-urgent { color: var(--signal); }
 .deadline-text.urgency-soon { color: var(--ochre); }
 .deadline-text.urgency-calm { color: var(--calm); }
-.deadline-text.urgency-closed, .deadline-text.urgency-tba { color: var(--closed); }
+.deadline-text.urgency-closed, .deadline-text.urgency-tba { color: var(--closed); font-weight: 550; }
 
 .deadline-sub {
   display: flex;
@@ -1777,7 +1783,8 @@ dialog::backdrop {
   .feature { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .deadline-rail { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .map-stage { height: 610px; min-height: 610px; }
-  .event { grid-template-columns: 68px minmax(170px, 1.35fr) minmax(120px, 1fr) minmax(130px, 0.85fr) auto; gap: 10px; }
+  .event { grid-template-columns: 68px minmax(160px, 1.3fr) minmax(115px, 0.9fr) minmax(168px, 0.95fr) auto; gap: 10px; }
+  .deadline-text.is-live { font-size: 16.5px; }
 }
 
 @media (max-width: 760px) {
@@ -1833,6 +1840,7 @@ dialog::backdrop {
   .location-cell .place-text { font-size: 12px; color: var(--muted); font-weight: 500; }
   .location-cell small { font-size: 11.5px; }
   .deadline-cell { grid-column: 2 / 4; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; padding-top: 7px; margin-top: 2px; border-top: 1px dashed var(--line); }
+  .deadline-text.is-live { font-size: 17px; }
   .row-actions { grid-area: actions; align-self: start; }
   .row-btn.is-desktop-only { display: none; }
   .event-name { font-size: 15px; }

@@ -70,11 +70,11 @@
   const today = cst(initialNow);
   const currentYear = Number(today.slice(0,4));
   const seasons = [...new Set(events.map(e => e.meetingYear))].sort((a,b) => b-a);
-  const nextInitialDeadline = events.filter(e => e.rank === 'A' && e.category === 'AI')
+  const nextInitialDeadline = events.filter(e => e.rank === 'A')
     .flatMap(e => e.deadlines).filter(d => d.ts > initialNow).sort((a,b) => a.ts-b.ts)[0];
   const initialYear = nextInitialDeadline ? Number(cst(nextInitialDeadline.ts).slice(0,4)) : currentYear;
   const state = {
-    year:initialYear, month:0, mode:'deadline', rank:'A', category:'AI', query:'',
+    year:initialYear, month:0, mode:'deadline', rank:'A', category:'', query:'',
     favOnly:false, hidePassed:false, sort:'date', tz:'UTC+8', theme:readTheme(), limit:32, saved:readSaved()
   };
   let rows = [], yearRows = [], spotlight = null, cityMap = new Map(), openCity = null;
@@ -173,6 +173,12 @@
     const [d,h,m] = delta(ts,now);
     return d ? `${d}d ${h}h left` : h ? `${h}h ${m}m left` : m ? `${m} min left` : 'Under 1 min';
   }
+  function liveCountdown(ts, now = Date.now()) {
+    if (ts <= now) return 'Closed';
+    const [d, h, m, s] = delta(ts, now);
+    const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
+    return d ? `${d}d ${clock}` : clock;
+  }
   function urgencyClass(ts, now = Date.now()) {
     if (!Number.isFinite(ts)) return 'urgency-tba';
     const diffDays = (ts - now) / 86400000;
@@ -227,10 +233,15 @@
     $('spot-body').innerHTML = `<div class="spot-identity">${brandThumb(e)}<div class="spot-identity-text"><div class="spot-meta">${rankBadge(e)} <span>${esc(fields[e.category] || e.category)}</span></div><button data-open="${esc(e.id)}" class="spot-name">${esc(e.title)} <span>${e.year}</span></button><div class="spot-location">${icon('pin')} ${esc(e.place || 'Location TBA')}</div></div></div><div class="countdown" role="timer" aria-label="Time until submission deadline">${['Days','Hrs','Min','Sec'].map((s,i) => `<div><b id="tick-${i}">00</b><small>${s}</small></div>`).join('')}</div><div class="spot-when"><b>${typeName(d)}</b><span>${esc(formatTz(d.ts))} ${esc(state.tz === 'LOCAL' ? 'Local' : state.tz)}</span></div>`;
     renderClock();
   }
-  function renderClock() {
+  function renderClock(now = Date.now()) {
     globeView?.updateCountdowns();
-    if (!spotlight) return;
-    delta(spotlight.d.ts).forEach((v,i) => { const el = $('tick-'+i); if (el) el.textContent = pad(v); });
+    if (spotlight) {
+      delta(spotlight.d.ts, now).forEach((v,i) => { const el = $('tick-'+i); if (el) el.textContent = pad(v); });
+    }
+    document.querySelectorAll('[data-live-countdown]').forEach(el => {
+      const ts = Number(el.dataset.liveCountdown);
+      el.textContent = liveCountdown(ts, now);
+    });
   }
   function renderMonths() {
     const counts = new Array(13).fill(0);
@@ -270,8 +281,9 @@
       const day = displayTime ? displayTime.slice(8,10) : date ? date.slice(8,10) : '—';
       const wk = displayTime ? weekdayFor(displayTime.slice(0,10)) : date ? weekdayFor(date) : '';
       const subDate = displayTime ? displayTime.slice(11) : (date && Number(date.slice(5,7)) ? monthNames[Number(date.slice(5,7))].slice(0,3) : 'TBA');
-      const status = undated ? 'Deadline TBA' : next ? relative(next.ts, now) : deadlineStatus(e,now);
+      const status = undated ? 'Deadline TBA' : next ? (next.ts > now ? liveCountdown(next.ts, now) : 'Closed') : deadlineStatus(e,now);
       const isClosed = !undated && (!next || next.ts <= now);
+      const isLive = !undated && Boolean(next && next.ts > now);
       const urgency = undated ? 'urgency-tba' : next ? urgencyClass(next.ts, now) : 'urgency-closed';
       const kindPill = undated
         ? '<span class="kind-pill tba">TBA</span>'
@@ -282,7 +294,7 @@
       const saved = state.saved.has(e.id);
       const nearest = !undated && e.id === spotlight?.e.id && (!d || d.ts === spotlight.d.ts);
       const cityKey = e.points.length ? cityKeyFor(e.points[0]) : '';
-      chunk.push(`<article class="event${nearest ? ' is-next' : ''}${isClosed ? ' is-closed' : ''}" data-row="${esc(e.id)}"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><div class="date-block"><span class="date-block-top"><strong>${day}</strong>${wk ? `<span class="weekday">${wk}</span>` : ''}</span><small>${subDate}</small></div><div class="identity-cell">${brandThumb(e, 'is-sm')}<div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><div class="event-submeta"><small>${e.year} · ${esc(fields[e.category] || e.category)}</small>${noteText}</div></div></div><div class="cell location-cell"><span class="place-text">${esc(e.place || 'Location TBA')}</span><small>${esc(e.date || 'Dates TBA')}</small></div><div class="cell deadline-cell"><span class="deadline-text ${next && next.ts>now ? 'active-deadline ' : ''}${urgency}" ${next ? `data-relative="${next.ts}"` : ''}>${status}</span><div class="deadline-sub">${kindPill}${!d && next ? `<small>${esc(formatTz(next.ts).slice(5,16))}</small>` : ''}</div></div><div class="row-actions">${cityKey ? `<button class="row-btn is-desktop-only" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}${validUrl(e.link) ? `<a class="row-btn is-desktop-only" href="${esc(e.link)}" target="_blank" rel="noopener" aria-label="Open ${esc(e.title)} website" title="Official website" data-ext="1">${icon('link')}</a>` : ''}<button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'Unsave':'Save'} ${esc(e.title)} ${e.year}">${icon('star')}</button></div></article>`);
+      chunk.push(`<article class="event${nearest ? ' is-next' : ''}${isClosed ? ' is-closed' : ''}" data-row="${esc(e.id)}"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><div class="date-block"><span class="date-block-top"><strong>${day}</strong>${wk ? `<span class="weekday">${wk}</span>` : ''}</span><small>${subDate}</small></div><div class="identity-cell">${brandThumb(e, 'is-sm')}<div class="cell"><div class="event-title"><button class="event-name" data-open="${esc(e.id)}">${esc(e.title)}</button>${rankBadge(e)}</div><div class="event-submeta"><small>${e.year} · ${esc(fields[e.category] || e.category)}</small>${noteText}</div></div></div><div class="cell location-cell"><span class="place-text">${esc(e.place || 'Location TBA')}</span><small>${esc(e.date || 'Dates TBA')}</small></div><div class="cell deadline-cell"><span class="deadline-text ${isLive ? 'active-deadline is-live ' : ''}${urgency}" ${isLive ? `data-live-countdown="${next.ts}"` : next ? `data-relative="${next.ts}"` : ''}>${status}</span><div class="deadline-sub">${kindPill}${!d && next ? `<small>${esc(formatTz(next.ts).slice(5,16))}</small>` : ''}</div></div><div class="row-actions">${cityKey ? `<button class="row-btn is-desktop-only" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}${validUrl(e.link) ? `<a class="row-btn is-desktop-only" href="${esc(e.link)}" target="_blank" rel="noopener" aria-label="Open ${esc(e.title)} website" title="Official website" data-ext="1">${icon('link')}</a>` : ''}<button class="save" data-save="${esc(e.id)}" aria-pressed="${saved}" aria-label="${saved?'Unsave':'Save'} ${esc(e.title)} ${e.year}">${icon('star')}</button></div></article>`);
     }
     finish();
     $('schedule').innerHTML = blocks.join('') || `<div class="empty">${state.favOnly ? 'No saved conferences match these filters. Use the star beside a conference to save it.' : 'No conferences match these filters.'} <button id="clear-filter">Reset filters</button></div>`;
@@ -613,8 +625,9 @@
   populateYears();render();
   setInterval(()=>{
     const now=Date.now();
-    if(spotlight && spotlight.d.ts<=now){render();return;}
-    renderClock();
+    const expiredLive = [...document.querySelectorAll('[data-live-countdown]')].some(el => Number(el.dataset.liveCountdown) <= now);
+    if((spotlight && spotlight.d.ts<=now) || expiredLive){render();return;}
+    renderClock(now);
     if(Math.floor(now/60000)!==Math.floor(lastNow/60000)){
       document.querySelectorAll('[data-relative]').forEach(el=>{el.textContent=relative(Number(el.dataset.relative),now);});
       lastNow=now;

@@ -352,14 +352,14 @@ def main():
         pause(page)
         english_ui(page, 'overview uses English and exact CCF-Schedule branding')
         initial = page.evaluate('({events:CCF_DATA.events,now:Date.now()})')
-        ai_times = [datetime.fromisoformat(deadline['at'].replace('Z', '+00:00')).timestamp() * 1000
-                    for event in initial['events'] if event['rank'] == 'A' and event['category'] == 'AI'
-                    for deadline in event['deadlines'] if deadline.get('at')]
-        earliest_ai = min((at for at in ai_times if at > initial['now']), default=initial['now'])
-        default_year = datetime.fromtimestamp(earliest_ai / 1000, timezone(timedelta(hours=8))).year
-        check('initial submission year contains the next AI CCF A deadline', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
+        rank_a_times = [datetime.fromisoformat(deadline['at'].replace('Z', '+00:00')).timestamp() * 1000
+                        for event in initial['events'] if event['rank'] == 'A'
+                        for deadline in event['deadlines'] if deadline.get('at')]
+        earliest_rank_a = min((at for at in rank_a_times if at > initial['now']), default=initial['now'])
+        default_year = datetime.fromtimestamp(earliest_rank_a / 1000, timezone(timedelta(hours=8))).year
+        check('initial submission year contains the next CCF A deadline', page.locator('#mode-deadline').get_attribute('aria-pressed') == 'true'
               and page.locator('#year').input_value() == str(default_year))
-        check('initial filters are CCF A and Artificial Intelligence', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == 'AI')
+        check('initial filters are CCF A and all research areas', page.locator('#rank').input_value() == 'A' and page.locator('#category').input_value() == '')
         logo_assets = page.evaluate("""async () => {
           const sources=[...new Set(Object.values(CCF_BRANDS).map(brand=>brand.logo))];
           const results=await Promise.all(sources.map(source=>new Promise(resolve=>{
@@ -583,6 +583,7 @@ def main():
         context.add_init_script(CAPTURE)
         context.route(re.compile(r'/assets/conferences/acl\.svg(?:\?.*)?$'), lambda route: route.abort())
         page = context.new_page(); page.goto(args.url, wait_until='networkidle'); ready(page); pause(page)
+        page.locator('#category').select_option('AI')
         page.locator('#rank').select_option('A')
         check('failed logo remains a readable monogram after rendering again',
               page.locator('.globe-tag.hot .globe-tag-monogram').is_visible()
