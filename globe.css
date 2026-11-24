@@ -152,33 +152,42 @@
 .globe-tag-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
 }
 
 .globe-tag-logo-frame {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 34px;
   flex: none;
-  background: var(--tag-logo-background, #ffffff);
-  border-radius: 3px;
-  border: 1px solid #d6dce6;
-  padding: 2.5px;
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  padding: 0;
+  overflow: visible;
 }
 
 .globe-tag-logo {
   display: block;
-  width: 100%;
-  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
 }
 
-.globe-tag-logo-frame:has(.globe-tag-logo[hidden]) {
-  background: var(--tag-surface, #eef1f5);
-  border-color: var(--tag-border, #ced5e0);
+.globe-tag-logo[data-tone="light"] {
+  filter: brightness(0) opacity(0.88);
+}
+
+.globe-tag-logo[data-tone="yellow"] {
+  filter: brightness(0.66) contrast(1.38) saturate(1.15);
+}
+
+.globe-tag-logo[data-tone="mixed-light"] {
+  filter: drop-shadow(0 0.5px 1.3px rgba(23, 22, 20, 0.52));
 }
 
 .globe-tag-monogram {
@@ -186,7 +195,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 700 9.5px/1 var(--mono);
+  font: 800 12px/1 var(--mono);
   letter-spacing: -0.02em;
   color: var(--tag-ink, #232a35);
 }
@@ -269,7 +278,7 @@
   gap: 4px;
 }
 
-.compact-globe .globe-tag-logo-frame { width: 26px; height: 26px; }
+.compact-globe .globe-tag-logo-frame { width: 38px; height: 28px; }
 .compact-globe .globe-tag-heading { font-size: 12px; }
 .compact-globe .globe-countdown { font-size: 20px; padding-top: 4px; }
 

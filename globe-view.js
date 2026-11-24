@@ -379,7 +379,7 @@
           accent, edge: mix(accent, '#73809a', .3), ink: mix(accent, '#182338', .42), surface: mix(accent, '#ffffff', .94),
           border: mix(accent, '#ffffff', .55), light: mix(accent, '#ffffff', .67)
         })) entry.button.style.setProperty('--tag-' + name, value);
-        entry.button.style.setProperty('--tag-logo-background', brand?.background || '#ffffff');
+        entry.logo.dataset.tone = brand?.tone || 'color';
         entry.line.style.stroke = mix(accent, '#ffffff', .65);
         entry.ripple.style.color = mix(accent, '#ffffff', .55);
         entry.pin.style.backgroundColor = mix(accent, '#ffffff', p.hot ? .45 : .3);

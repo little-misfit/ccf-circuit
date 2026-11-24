@@ -41,8 +41,8 @@
     const cls = size ? ` ${size}` : '';
     const mono = esc(monogramFor(e.title));
     if (brand?.logo) {
-      const bg = brand.background ? ` style="--logo-bg:${esc(brand.background)}"` : '';
-      return `<span class="conf-logo-frame${cls}"${bg} aria-hidden="true"><img class="conf-logo-img" src="${esc(brand.logo)}" alt="" loading="lazy" decoding="async"><span class="conf-logo-mono" hidden>${mono}</span></span>`;
+      const tone = esc(brand.tone || 'color');
+      return `<span class="conf-logo-frame${cls}" aria-hidden="true"><img class="conf-logo-img" data-tone="${tone}" src="${esc(brand.logo)}" alt="" loading="lazy" decoding="async"><span class="conf-logo-mono" hidden>${mono}</span></span>`;
     }
     return `<span class="conf-logo-frame is-monogram${cls}" aria-hidden="true"><span class="conf-logo-mono">${mono}</span></span>`;
   };
