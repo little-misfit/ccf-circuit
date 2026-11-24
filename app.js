@@ -63,7 +63,9 @@
       .sort((a,b) => (a.ts || Infinity) - (b.ts || Infinity));
     const points = geo.lookup(e.place || '');
     const search = normalize([e.title,e.name,e.year,e.place,e.rank,fields[e.category],...points.map(p => p.name)].join(' '));
-    return {...e, year:Number(e.year), meetingYear:e.start ? Number(e.start.slice(0,4)) : Number(e.year), points, deadlines, search};
+    const startTs = e.start ? Date.parse(`${e.start}T00:00:00+08:00`) : NaN;
+    const endTs = (e.end || e.start) ? Date.parse(`${e.end || e.start}T23:59:59+08:00`) : NaN;
+    return {...e, year:Number(e.year), meetingYear:e.start ? Number(e.start.slice(0,4)) : Number(e.year), startTs, endTs, points, deadlines, search};
   });
   const eventById = new Map(events.map(e => [e.id,e]));
   const initialNow = Date.now();
@@ -206,16 +208,13 @@
     const clock = `${pad(h)}:${pad(m)}:${pad(s)}`;
     return d ? `${d}d ${clock}` : clock;
   }
-  function meetingRelative(e, todayIso) {
-    const start = e.start || '';
-    const end = e.end || start;
-    if (!start) return {text:'Dates TBA', urgency:'urgency-tba', ended:false, ongoing:false};
-    if (todayIso >= start && todayIso <= end) return {text:'In progress', urgency:'urgency-urgent', ended:false, ongoing:true};
-    if (end < todayIso) return {text:'Ended', urgency:'urgency-closed', ended:true, ongoing:false};
-    const days = Math.round((Date.parse(start + 'T00:00:00Z') - Date.parse(todayIso + 'T00:00:00Z')) / 86400000);
-    const text = days === 1 ? 'Tomorrow' : `In ${days} days`;
+  function meetingRelative(e, now = Date.now()) {
+    if (!Number.isFinite(e.startTs)) return {text:'Dates TBA', urgency:'urgency-tba', ended:false, ongoing:false, live:false};
+    if (now >= e.startTs && now <= e.endTs) return {text:'In progress', urgency:'urgency-urgent', ended:false, ongoing:true, live:false};
+    if (now > e.endTs) return {text:'Ended', urgency:'urgency-closed', ended:true, ongoing:false, live:false};
+    const days = (e.startTs - now) / 86400000;
     const urgency = days <= 14 ? 'urgency-urgent' : days <= 45 ? 'urgency-soon' : 'urgency-calm';
-    return {text, urgency, ended:false, ongoing:false};
+    return {text:liveCountdown(e.startTs, now), urgency, ended:false, ongoing:false, live:true};
   }
   function cfpTag(e, now) {
     const next = nextDeadline(e, now);
@@ -231,13 +230,21 @@
     if (diffDays <= 30) return 'urgency-soon';
     return 'urgency-calm';
   }
-  function pendingSubmissions(now = Date.now()) {
+  function pendingItems(now = Date.now()) {
+    if (state.mode === 'meet') {
+      const unique = new Map();
+      for (const {e} of rows) {
+        if (!Number.isFinite(e.startTs) || e.startTs <= now) continue;
+        if (!unique.has(e.id)) unique.set(e.id, {e, d:{ts:e.startTs, type:'conference'}});
+      }
+      return [...unique.values()].sort((a,b) => a.d.ts-b.d.ts || byName(a.e.title,b.e.title));
+    }
     const entries = rows.filter(r => !r.undated).map(({e,d}) => ({e,d:d || nextDeadline(e,now)})).filter(s => s.d && s.d.ts > now);
     const unique = new Map(entries.map(s => [`${s.e.id}:${s.d.ts}:${s.d.type}`, s]));
     return [...unique.values()].sort((a,b) => a.d.ts-b.d.ts || byName(a.e.title,b.e.title));
   }
   function makeSpotlight(now) {
-    return pendingSubmissions(now)[0] || null;
+    return pendingItems(now)[0] || null;
   }
   function formatMonthChip(monthKey) {
     if (!monthKey) return '';
@@ -270,23 +277,32 @@
     $('upcoming-tz').textContent = state.tz === 'LOCAL' ? 'Local' : state.tz;
   }
   function renderUpcoming() {
-    const upcoming = pendingSubmissions().slice(1,4);
+    const isMeet = state.mode === 'meet';
+    const upcoming = pendingItems().slice(1,4);
     $('upcoming-list').innerHTML = upcoming.length ? upcoming.map(({e,d}) => {
       const cityKey = e.points.length ? cityKeyFor(e.points[0]) : '';
-      return `<div class="upcoming-item-wrap"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><button class="upcoming-item" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="upcoming-item-body"><span class="upcoming-main"><strong>${esc(e.title)} <small>${e.year}</small></strong>${rankBadge(e)}</span><span class="upcoming-meta-row"><span class="upcoming-time">${kindLabel(d)} · ${esc(formatTz(d.ts).slice(5))}</span><span class="upcoming-relative ${urgencyClass(d.ts)}" data-relative="${d.ts}">${relative(d.ts)}</span></span></span></button>${cityKey ? `<button class="upcoming-locate" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}</div>`;
-    }).join('') : '<p class="upcoming-empty">No further deadlines match these filters.</p>';
+      const subTime = isMeet ? esc(e.date || e.start || 'Dates TBA') : `${kindLabel(d)} · ${esc(formatTz(d.ts).slice(5))}`;
+      return `<div class="upcoming-item-wrap"${cityKey ? ` data-hover-city="${esc(cityKey)}"` : ''}><button class="upcoming-item" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="upcoming-item-body"><span class="upcoming-main"><strong>${esc(e.title)} <small>${e.year}</small></strong>${rankBadge(e)}</span><span class="upcoming-meta-row"><span class="upcoming-time">${subTime}</span><span class="upcoming-relative ${urgencyClass(d.ts)}" data-relative="${d.ts}">${relative(d.ts)}</span></span></span></button>${cityKey ? `<button class="upcoming-locate" data-locate="${esc(cityKey)}" aria-label="Locate ${esc(e.title)} on globe" title="Locate on globe">${icon('focus')}</button>` : ''}</div>`;
+    }).join('') : `<p class="upcoming-empty">${isMeet ? 'No further conferences match these filters.' : 'No further deadlines match these filters.'}</p>`;
   }
   function renderSpot() {
+    const isMeet = state.mode === 'meet';
+    $('spot-title-text').textContent = isMeet ? 'Next conference' : 'Next deadline';
+    $('legend-hot-label').textContent = isMeet ? 'Next conference' : 'Next deadline';
     $('focus-deadline').disabled = !spotlight?.e.points.length;
     $('focus-deadline').innerHTML = icon('focus') + (spotlight && !spotlight.e.points.length ? 'Location unavailable' : 'Locate on globe');
     $('spot-ics').hidden = !spotlight;
     if (spotlight) $('spot-ics').dataset.ics = spotlight.e.id;
     if (!spotlight) {
-      $('spot-body').innerHTML = '<p class="small-empty"><b>No upcoming deadlines</b>No announced future deadlines match these filters.</p>';
+      $('spot-body').innerHTML = isMeet
+        ? '<p class="small-empty"><b>No upcoming conferences</b>No announced future conferences match these filters.</p>'
+        : '<p class="small-empty"><b>No upcoming deadlines</b>No announced future deadlines match these filters.</p>';
       return;
     }
     const {e,d} = spotlight;
-    $('spot-body').innerHTML = `<div class="spot-identity">${brandThumb(e)}<div class="spot-identity-text"><div class="spot-meta">${rankBadge(e)} <span>${esc(fields[e.category] || e.category)}</span></div><button data-open="${esc(e.id)}" class="spot-name">${esc(e.title)} <span>${e.year}</span></button><div class="spot-location">${icon('pin')} ${esc(e.place || 'Location TBA')}</div></div></div><div class="countdown" role="timer" aria-label="Time until submission deadline">${['Days','Hrs','Min','Sec'].map((s,i) => `<div><b id="tick-${i}">00</b><small>${s}</small></div>`).join('')}</div><div class="spot-when"><b>${typeName(d)}</b><span>${esc(formatTz(d.ts))} ${esc(state.tz === 'LOCAL' ? 'Local' : state.tz)}</span></div>`;
+    const whenLeft = isMeet ? 'Conference dates' : typeName(d);
+    const whenRight = isMeet ? esc(e.date || e.start || 'Dates TBA') : `${esc(formatTz(d.ts))} ${esc(state.tz === 'LOCAL' ? 'Local' : state.tz)}`;
+    $('spot-body').innerHTML = `<div class="spot-identity">${brandThumb(e)}<div class="spot-identity-text"><div class="spot-meta">${rankBadge(e)} <span>${esc(fields[e.category] || e.category)}</span></div><button data-open="${esc(e.id)}" class="spot-name">${esc(e.title)} <span>${e.year}</span></button><div class="spot-location">${icon('pin')} ${esc(e.place || 'Location TBA')}</div></div></div><div class="countdown" role="timer" aria-label="${isMeet ? 'Time until conference opens' : 'Time until submission deadline'}">${['Days','Hrs','Min','Sec'].map((s,i) => `<div><b id="tick-${i}">00</b><small>${s}</small></div>`).join('')}</div><div class="spot-when"><b>${whenLeft}</b><span>${whenRight}</span></div>`;
     renderClock();
   }
   function renderClock(now = Date.now()) {
@@ -367,13 +383,14 @@
         day = date ? date.slice(8,10) : '—';
         wk = date ? weekdayFor(date) : '';
         subDate = date && Number(date.slice(5,7)) ? monthNames[Number(date.slice(5,7))].slice(0,3) : 'TBA';
-        const mInfo = meetingRelative(e, todayIso);
+        const mInfo = meetingRelative(e, now);
         const cfp = cfpTag(e, now);
         status = mInfo.text;
         isClosed = mInfo.ended;
-        isLive = false;
-        isNextRow = mInfo.ongoing;
+        isLive = mInfo.live;
+        isNextRow = mInfo.ongoing || (mInfo.live && e.id === spotlight?.e.id);
         urgency = mInfo.urgency;
+        liveAttr = isLive ? `data-live-countdown="${e.startTs}"` : '';
         deadlineSub = `<span class="kind-pill ${cfp.cls}">${cfp.label}</span>`;
       } else {
         const next = undated ? null : d || nextDeadline(e,now);
@@ -424,22 +441,27 @@
     $('unmapped').textContent=missing ? missing+' unmapped' : '';
     $('unmapped').title='Online conferences and conferences without a confirmed map location remain in the schedule.';
     $('city-pop').hidden=true; openCity=null;
-    const pending = pendingSubmissions();
+    const pending = pendingItems();
     if (globeView?.available) {
       const now = Date.now();
-      const undated = new Set(rows.filter(r => r.undated || (state.mode === 'meet' && hasUnannouncedDeadline(r.e))).map(r => r.e));
+      const isMeet = state.mode === 'meet';
+      const undated = new Set(isMeet
+        ? rows.filter(r => !Number.isFinite(r.e.startTs)).map(r => r.e)
+        : rows.filter(r => r.undated).map(r => r.e));
       globeView.setLocations([...cityMap.values()].map(p => {
         const first = pending.find(({e}) => p.events.includes(e));
         const waiting = !first && p.events.find(e => undated.has(e));
         const ordered = !first && !waiting
-          ? [...p.events].sort((a,b) => Number(hasUnannouncedDeadline(b))-Number(hasUnannouncedDeadline(a)) || b.year-a.year || dateKey(a).localeCompare(dateKey(b)) || byName(a.title,b.title))
+          ? [...p.events].sort((a,b) => isMeet
+              ? (b.startTs || 0) - (a.startTs || 0) || byName(a.title, b.title)
+              : Number(hasUnannouncedDeadline(b))-Number(hasUnannouncedDeadline(a)) || b.year-a.year || dateKey(a).localeCompare(dateKey(b)) || byName(a.title,b.title))
           : [];
         const primary = ordered[0] || null;
         return {...p, lng:p.lon, hot:p.events.some(e => e.id === spotlight?.e.id),
           next:first ? {id:first.e.id,title:first.e.title,year:first.e.year,at:first.d.ts,type:first.d.type} : null,
-          undated:waiting ? {id:waiting.id,title:waiting.title,year:waiting.year} : null,
-          primary:primary ? {id:primary.id,title:primary.title,year:primary.year,status:deadlineStatus(primary, now)} : null};
-      }));
+          undated:waiting ? {id:waiting.id,title:waiting.title,year:waiting.year,status:isMeet ? 'Dates TBA' : 'Deadline TBA'} : null,
+          primary:primary ? {id:primary.id,title:primary.title,year:primary.year,status:isMeet ? meetingRelative(primary, now).text : deadlineStatus(primary, now)} : null};
+      }), { mode: state.mode });
       return;
     }
     const svg = [];
@@ -475,12 +497,12 @@
     if(!p)return;
     openCity=key;
     const now = Date.now();
-    const todayIso = cst(now).slice(0,10);
-    const pending = pendingSubmissions(now);
+    const pending = pendingItems(now);
     $('city-pop').innerHTML=`<div class="pop-title"><span>${esc(p.name)} · ${countLabel(p.events.length,'conference')}</span><button id="pop-close" aria-label="Close city conferences">${icon('close')}</button></div>${p.events.sort((a,b)=>dateKey(a).localeCompare(dateKey(b))||byName(a.title,b.title)).map(e=>{
       if (state.mode === 'meet') {
-        const mInfo = meetingRelative(e, todayIso);
-        const sub = `${e.date || 'Dates TBA'} · ${mInfo.text}`;
+        const mInfo = meetingRelative(e, now);
+        const rel = mInfo.live ? relative(e.startTs, now) : mInfo.text;
+        const sub = `${e.date || 'Dates TBA'} · ${rel}`;
         return `<button class="pop-event" data-open="${esc(e.id)}">${brandThumb(e, 'is-sm')}<span class="pop-event-body"><span class="pop-event-head"><strong>${esc(e.title)} ${e.year}</strong>${rankBadge(e)}</span><span class="pop-sub">${esc(sub)}</span></span></button>`;
       }
       const next=pending.find(s=>s.e===e)?.d;

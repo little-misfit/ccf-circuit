@@ -296,8 +296,10 @@
       return { x: this.width / 2 + rx * this.height * scale / 2, y: this.height / 2 - ry * this.height * scale / 2 + this.offset[1] * scale / 2, visible: rz >= 0 || rx * rx + ry * ry >= .64 };
     }
 
-    setLocations(locations) {
+    setLocations(locations, opts = {}) {
       if (!this.available) return;
+      this.mode = opts.mode || 'deadline';
+      this.stage.dataset.mode = this.mode;
       this.locations = locations.map(p => ({ ...p, markerId: this.prefix + p.key.replace(/[^\w-]/g, '_') }));
       const keys = new Set(locations.map(p => p.key));
       for (const [key, entry] of this.labels) {
@@ -363,14 +365,21 @@
         if (card) entry.button.dataset.open = card.id;
         else delete entry.button.dataset.open;
         const extra = p.events.length > 1 ? ` · +${p.events.length - 1} more` : '';
+        const nextKind = p.next?.type === 'conference' ? 'Conference' : p.next?.type === 'abstract' ? 'Abstract' : 'Paper';
         entry.heading.textContent = card ? `${card.title} ${card.year}` : p.name;
         entry.location.textContent = p.next
-          ? `${p.next.type === 'abstract' ? 'Abstract' : 'Paper'} · ${p.name}`
+          ? `${nextKind} · ${p.name}`
           : card
             ? `${p.name}${extra}`
             : `${p.name} · ${p.events.length} ${p.events.length === 1 ? 'conference' : 'conferences'}`;
-        entry.kind.textContent = p.hot ? 'Next deadline' : p.next ? (p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline') : p.undated ? 'Deadline TBA' : p.primary?.status || 'View conferences';
-        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown. View details' : p.undated ? 'Deadline to be announced. View details' : card ? `${p.primary?.status || 'Conference'}. View details` : 'View conferences'}`);
+        entry.kind.textContent = p.hot
+          ? (this.mode === 'meet' ? 'Next conference' : 'Next deadline')
+          : p.next
+            ? (p.next.type === 'conference' ? 'Conference date' : p.next.type === 'abstract' ? 'Abstract deadline' : 'Paper deadline')
+            : p.undated
+              ? (p.undated.status || 'Deadline TBA')
+              : p.primary?.status || 'View conferences';
+        entry.button.setAttribute('aria-label', `${entry.heading.textContent}, ${p.name}, ${p.next ? (p.next.type === 'conference' ? 'conference countdown' : (p.next.type === 'abstract' ? 'abstract' : 'paper') + ' submission countdown') + '. View details' : p.undated ? `${p.undated.status || 'Deadline to be announced'}. View details` : card ? `${p.primary?.status || 'Conference'}. View details` : 'View conferences'}`);
         entry.button.title = `${entry.heading.textContent} · ${entry.location.textContent}`;
       }
       this.markers = this.locations.map(p => ({
@@ -393,8 +402,8 @@
         timer.textContent = point.next
           ? formatCountdown(point.next.at)
           : point.undated
-            ? 'Deadline TBA'
-            : point.primary?.status || 'No upcoming deadline';
+            ? (point.undated.status || 'Deadline TBA')
+            : point.primary?.status || (this.mode === 'meet' ? 'Ended' : 'No upcoming deadline');
       }
     }
 
@@ -507,7 +516,7 @@
           const test = { x: Math.max(12, Math.min(width - tagWidth - 12, x)), y: Math.max(minY, Math.min(maxY, y)) };
           const top = test.y - (p.hot ? 20 : 0);
           const coversMarker = markers.some(m => overlapsMarker(m, test.x, test.y, tagWidth, tagHeight)
-            || (p.hot && overlapsMarker(m, test.x, top, 112, 14)));
+            || (p.hot && overlapsMarker(m, test.x, top, this.mode === 'meet' ? 124 : 112, 14)));
           if (!coversMarker && !occupied.some(b => test.x < b.x + tagWidth + 10 && test.x + tagWidth + 10 > b.x && top < b.y + b.height + 10 && test.y + tagHeight + 10 > b.y)) { box = test; break; }
         }
         if (!box) continue;

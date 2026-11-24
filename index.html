@@ -71,11 +71,11 @@
         <div class="globe-hint" id="globe-hint">Drag to rotate · Scroll or pinch to zoom</div>
         <div class="map-tools"><button id="globe-motion" aria-label="Pause rotation" title="Pause rotation" aria-pressed="true">Ⅱ</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button><button id="map-reset" aria-label="Reset view" title="Reset view"><svg><use href="#i-focus"/></svg></button></div>
       </div>
-      <div class="map-foot"><div><span class="legend-dot"></span>Host city <span class="legend-dot hot"></span>Next deadline</div><span id="unmapped"></span></div>
+      <div class="map-foot"><div><span class="legend-dot"></span>Host city <span class="legend-dot hot"></span><span id="legend-hot-label">Next deadline</span></div><span id="unmapped"></span></div>
     </article>
     <aside class="deadline-rail">
       <article class="spotlight">
-        <div class="spot-top"><h2><svg><use href="#i-clock"/></svg>Next deadline</h2><span class="live-label" id="spot-tz">UTC+8</span></div>
+        <div class="spot-top"><h2><svg><use href="#i-clock"/></svg><span id="spot-title-text">Next deadline</span></h2><span class="live-label" id="spot-tz">UTC+8</span></div>
         <div id="spot-body"></div>
         <div class="spot-actions">
           <button id="focus-deadline" class="focus-deadline"><svg><use href="#i-focus"/></svg>Locate on globe</button>

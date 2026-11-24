@@ -256,6 +256,11 @@
   letter-spacing: 0.11em;
 }
 
+[data-mode="meet"] .globe-tag.hot::before {
+  content: 'NEXT CONFERENCE';
+  width: 124px;
+}
+
 /* Compact Globe Mode (< 600px stage width) */
 .compact-globe .globe-tag {
   width: 178px;

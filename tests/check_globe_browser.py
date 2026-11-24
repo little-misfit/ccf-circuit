@@ -58,6 +58,11 @@ def expected_nearest(events, year, now, rank='', category='', mode='meet', month
                     continue
                 if '-' not in month_str and int(start[5:7]) != int(month_str):
                     continue
+            if start:
+                instant = datetime.fromisoformat(f'{start}T00:00:00+08:00')
+                if instant.timestamp() * 1000 > now:
+                    candidates.append((instant, event['title'], event['id']))
+            continue
         for deadline in event['deadlines']:
             if not deadline.get('at'):
                 continue
@@ -659,9 +664,9 @@ def main():
         context.route(re.compile(r'/conferences\.js(?:\?.*)?$'),fixture)
         page=context.new_page();page.goto(args.url);ready(page);pause(page)
         page.locator('#rank').select_option(''); page.locator('#category').select_option('')
-        page.locator('#mode-meet').click(); page.locator('#year').select_option('2027')
+        page.locator('#mode-deadline').click(); page.locator('#year').select_option('upcoming')
         check('multiple conferences in one city share a geographic location', page.evaluate("__qaGlobe.locations.find(p=>p.name==='Paris').events.length===2"))
-        check('unlocated conference stays in the schedule with a notice', page.locator('#schedule .event').count()==5 and '1' in page.locator('#unmapped').text_content())
+        check('unlocated conference stays in the schedule with a notice', page.locator('#schedule .event').count()==6 and '1' in page.locator('#unmapped').text_content())
         check('fixture starts with the earliest future deadline',page.locator('.spot-name').get_attribute('data-open')=='0')
         fallback = page.locator('.globe-tag.hot').evaluate("""card => {
           const logo=card.querySelector('.globe-tag-logo'), monogram=card.querySelector('.globe-tag-monogram');
@@ -677,7 +682,7 @@ def main():
         page.locator(f'#months [data-month="{later.month}"]').click()
         page.evaluate('__qaOnSelect(__qaGlobe.locations[0].key)')
         check('city popup uses the deadline in the selected submission month', 'Paper deadline' in page.locator('#city-pop').text_content() and 'Abstract deadline' not in page.locator('#city-pop').text_content())
-        page.locator('#mode-meet').click(); page.locator('#year').select_option('2027'); page.locator('#months [data-month="0"]').click()
+        page.locator('#mode-deadline').click(); page.locator('#year').select_option('upcoming'); page.locator('#months [data-month="0"]').click()
         page.evaluate('window.__clockOffset=180000');page.wait_for_timeout(1400)
         check('expired deadline advances highlight and never shows negative time',page.locator('.spot-name').get_attribute('data-open')=='1' and page.evaluate("__qaGlobe.locations.filter(p=>p.hot).every(p=>p.next.id==='1')") and '-' not in page.locator('.globe-tag.hot .globe-countdown').text_content())
         context.close()
